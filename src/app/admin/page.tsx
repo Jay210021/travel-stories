@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 import PhotoUploader from "./PhotoUploader";
@@ -13,6 +13,19 @@ export default function AdminPage() {
   const [mode, setMode] = useState<"login" | "editor">("login");
   const [status, setStatus] = useState("尚未登入");
   const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) return;
+    supabase.auth.getUser().then(({ data, error }) => {
+      if (data.user) {
+        setStatus(`已登入：${data.user.email ?? "作者"}`);
+        setMode("editor");
+      } else if (error) {
+        setStatus("登入狀態尚未建立，請再試一次");
+      }
+    });
+  }, []);
 
   async function signIn() {
     const supabase = getSupabaseBrowserClient();
