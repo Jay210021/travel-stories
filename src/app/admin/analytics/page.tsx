@@ -1,0 +1,7 @@
+import Link from "next/link";
+
+const stats = [{ label: "文章瀏覽", value: "—", note: "連接統計服務後顯示" }, { label: "熱門國家", value: "—", note: "尚未有公開資料" }, { label: "分享來源", value: "—", note: "尚未有公開資料" }];
+
+export default function AnalyticsPage() {
+  return <main className="min-h-screen bg-[#f5f7f3] px-6 py-8"><nav className="mx-auto flex max-w-5xl justify-between"><Link href="/" className="text-lg font-semibold tracking-[0.16em] text-[#31413d]">天天寶寶旅行趣</Link><Link href="/admin" className="text-sm text-[#c1664b]">← 回作者後台</Link></nav><section className="mx-auto max-w-5xl py-12"><p className="text-sm tracking-[0.2em] text-[#c1664b]">QUIET NUMBERS</p><h1 className="mt-3 text-4xl font-semibold text-[#31413d]">閱讀統計</h1><p className="mt-4 max-w-xl leading-7 text-[#718078]">只看整體內容表現，不追蹤單一訪客，讓我們知道哪些故事被更多人遇見。</p><div className="mt-10 grid gap-5 md:grid-cols-3">{stats.map((stat) => <div key={stat.label} className="rounded-3xl bg-white p-6 shadow-sm"><p className="text-sm text-[#7a8b83]">{stat.label}</p><p className="mt-4 text-4xl font-semibold text-[#31413d]">{stat.value}</p><p className="mt-3 text-xs text-[#9aa8a0]">{stat.note}</p></div>)}</div><div className="mt-8 rounded-3xl bg-white p-6"><h2 className="font-semibold text-[#31413d]">上線前檢查</h2><ul className="mt-5 grid gap-4 text-sm text-[#64776d] sm:grid-cols-2"><li>✓ 手機與電腦響應式版面</li><li>✓ 基本鍵盤操作與文字對比</li><li>✓ 文章分享標題與摘要</li><li>✓ 照片替代文字欄位</li><li>✓ 地圖連結不公開私人住宿位置</li><li>✓ Facebook 既有文章搬移未納入第一版</li></ul></div></section></main>;
+}
