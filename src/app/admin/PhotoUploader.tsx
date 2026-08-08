@@ -8,7 +8,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 type Photo = { id: string; file: File; preview: string; caption: string; alt: string };
 
-export default function PhotoUploader() {
+export default function PhotoUploader({ storyId }: { storyId: string | null }) {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [message, setMessage] = useState("尚未選擇照片");
@@ -40,11 +40,34 @@ export default function PhotoUploader() {
     setPhotos((current) => current.map((photo) => photo.id === id ? { ...photo, [field]: value } : photo));
   }
 
+  async function withoutMetadata(file: File) {
+    if (!removeLocation) return file;
+    const bitmap = await createImageBitmap(file);
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width; canvas.height = bitmap.height;
+    canvas.getContext("2d")?.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    const supportedType = ["image/jpeg", "image/png", "image/webp"].includes(file.type) ? file.type : "image/jpeg";
+    const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((result) => result ? resolve(result) : reject(new Error("無法處理圖片")), supportedType, 0.92));
+    return new File([blob], file.name, { type: supportedType, lastModified: file.lastModified });
+  }
+
   async function uploadPhotos() {
     const supabase = getSupabaseBrowserClient();
-    if (!supabase) { setMessage("展示模式：設定 Supabase 後即可上傳至 Storage"); return; }
-    const uploads = await Promise.all(photos.map(async (photo) => supabase.storage.from("travel-photos").upload(`drafts/${crypto.randomUUID()}-${photo.file.name}`, photo.file)));
-    setMessage(uploads.every(({ error }) => !error) ? "照片已上傳至 Storage" : "部分照片上傳失敗，請再試一次");
+    if (!supabase) { setMessage("找不到 Supabase 設定，無法上傳照片。"); return; }
+    if (!storyId) { setMessage("請先儲存草稿，再上傳照片。"); return; }
+    setMessage("照片上傳中…");
+    const uploads = await Promise.all(photos.map(async (photo, index) => {
+      const relativePath = `stories/${storyId}/${crypto.randomUUID()}-${photo.file.name}`;
+      const safeFile = await withoutMetadata(photo.file);
+      const upload = await supabase.storage.from("travel-photos").upload(relativePath, safeFile, { contentType: safeFile.type });
+      if (upload.error) return { error: upload.error };
+      const storagePath = `travel-photos/${upload.data.path}`;
+      const { error } = await supabase.from("story_media").insert({ story_id: storyId, kind: "photo", storage_path: storagePath, sort_order: index, caption: photo.caption, alt_text: photo.alt || photo.file.name });
+      if (!error && index === 0) await supabase.from("stories").update({ cover_path: storagePath, updated_at: new Date().toISOString() }).eq("id", storyId);
+      return { error };
+    }));
+    setMessage(uploads.every(({ error }) => !error) ? `已上傳並連結 ${uploads.length} 張照片${removeLocation ? "，GPS metadata 已移除" : ""}` : "部分照片上傳失敗，請再試一次");
   }
 
   function onDrop(event: DragEvent<HTMLDivElement>) { event.preventDefault(); addFiles(event.dataTransfer.files); }
