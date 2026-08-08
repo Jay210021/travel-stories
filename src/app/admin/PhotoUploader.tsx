@@ -4,7 +4,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { DragEvent, useEffect, useState } from "react";
-import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { attachMedia } from "@/lib/media-library";
 
 type Photo = { id: string; file: File; preview: string; caption: string; alt: string };
 
@@ -53,21 +53,14 @@ export default function PhotoUploader({ storyId }: { storyId: string | null }) {
   }
 
   async function uploadPhotos() {
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) { setMessage("找不到 Supabase 設定，無法上傳照片。"); return; }
     if (!storyId) { setMessage("請先儲存草稿，再上傳照片。"); return; }
     setMessage("照片上傳中…");
-    const uploads = await Promise.all(photos.map(async (photo, index) => {
-      const relativePath = `stories/${storyId}/${crypto.randomUUID()}-${photo.file.name}`;
-      const safeFile = await withoutMetadata(photo.file);
-      const upload = await supabase.storage.from("travel-photos").upload(relativePath, safeFile, { contentType: safeFile.type });
-      if (upload.error) return { error: upload.error };
-      const storagePath = `travel-photos/${upload.data.path}`;
-      const { error } = await supabase.from("story_media").insert({ story_id: storyId, kind: "photo", storage_path: storagePath, sort_order: index, caption: photo.caption, alt_text: photo.alt || photo.file.name });
-      if (!error && index === 0) await supabase.from("stories").update({ cover_path: storagePath, updated_at: new Date().toISOString() }).eq("id", storyId);
-      return { error };
-    }));
-    setMessage(uploads.every(({ error }) => !error) ? `已上傳並連結 ${uploads.length} 張照片${removeLocation ? "，GPS metadata 已移除" : ""}` : "部分照片上傳失敗，請再試一次");
+    try {
+      const files = await Promise.all(photos.map((photo) => withoutMetadata(photo.file)));
+      await attachMedia(storyId, "photo", files, photos.map((photo) => ({ caption: photo.caption, altText: photo.alt || photo.file.name })));
+      setMessage(`已上傳並連結 ${photos.length} 張照片${removeLocation ? "，GPS metadata 已移除" : ""}`);
+      setPhotos([]);
+    } catch (error) { setMessage(`照片上傳失敗：${error instanceof Error ? error.message : "請再試一次"}`); }
   }
 
   function onDrop(event: DragEvent<HTMLDivElement>) { event.preventDefault(); addFiles(event.dataTransfer.files); }

@@ -3,13 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { runStoryWorkflow, type StoryWorkflowAction } from "@/lib/story-workflow";
 import ExistingMediaManager from "./ExistingMediaManager";
 
 type Draft = { id?: string; draftId: string; source?: string; status: string; title: string; body: string; publishedAt: string | null; category: string; country: string | null; city: string | null; attraction?: string | null; journeySeries?: string | null; deletedAt?: string | null; media: { path: string; order: number; isCover: boolean; caption: string; alt: string }[]; review: { needsLocation: boolean; needsPrivacyCheck: boolean; readyToPublish: boolean } };
 type StoryRow = { id: string; source: string; source_id: string; status: string; title: string; body: string; category: string; country: string | null; city: string | null; attraction: string | null; journey_series: string | null; published_at: string | null; deleted_at: string | null };
 const cats = ["國外旅行", "台灣旅行", "日常生活"];
 const emptyReview = { needsLocation: false, needsPrivacyCheck: false, readyToPublish: false };
-const slug = (draft: Draft) => `story-${draft.draftId.replaceAll("-", "")}`;
 
 export default function DraftManager({ initialDrafts }: { initialDrafts: Draft[] }) {
   const [drafts, setDrafts] = useState(initialDrafts);
@@ -45,45 +45,52 @@ export default function DraftManager({ initialDrafts }: { initialDrafts: Draft[]
     setMessage(error ? `儲存失敗：${error.message}` : "文章內容已儲存。");
   }
 
+  async function applyWorkflow(action: StoryWorkflowAction, targets: Draft[]) {
+    const storyIds = targets.flatMap((draft) => draft.id ? [draft.id] : []);
+    if (storyIds.length !== targets.length) { setMessage("部分文章尚未同步到 Supabase，請重新整理後再試。 "); return false; }
+    try {
+      const result = await runStoryWorkflow(action, storyIds);
+      const updates = new Map(result.map((story) => [story.id, story]));
+      setDrafts((items) => items.map((draft) => {
+        const update = draft.id ? updates.get(draft.id) : undefined;
+        return update ? { ...draft, status: update.status, publishedAt: update.published_at, deletedAt: update.deleted_at } : draft;
+      }));
+      return true;
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "文章狀態更新失敗。");
+      return false;
+    }
+  }
+
   async function publish(ids: string[]) {
     if (!ids.length) return setMessage("請先選擇文章。");
     const targets = drafts.filter((draft) => ids.includes(draft.draftId) && draft.status !== "trash");
     if (!targets.length) return setMessage("垃圾桶文章需先復原才能發布。");
     if (!window.confirm(`確定發布選取的 ${targets.length} 篇文章嗎？`)) return;
-    const supabase = getSupabaseBrowserClient(); if (!supabase) return setMessage("找不到 Supabase 設定。");
-    const now = new Date().toISOString();
-    const results = await Promise.all(targets.map((draft) => supabase.from("stories").update({ slug: slug(draft), title: draft.title, body: draft.body, category: draft.category, country: draft.country, city: draft.city, attraction: draft.attraction || null, journey_series: draft.journeySeries || null, status: "published", published_at: draft.publishedAt ?? now, deleted_at: null, updated_at: now }).eq("source_id", draft.draftId)));
-    const failed = results.find((result) => result.error); if (failed?.error) return setMessage(`發布失敗：${failed.error.message}`);
-    setDrafts((items) => items.map((draft) => targets.some((target) => target.draftId === draft.draftId) ? { ...draft, status: "published", publishedAt: draft.publishedAt ?? now } : draft));
-    setSelected([]); setMessage(`已發布 ${targets.length} 篇文章。`);
+    if (await applyWorkflow("publish", targets)) { setSelected([]); setMessage(`已發布 ${targets.length} 篇文章。`); }
   }
 
   async function unpublishSelected() {
     const ids = drafts.filter((draft) => selected.includes(draft.draftId) && draft.status === "published").map((draft) => draft.draftId);
     if (!ids.length) return setMessage("選取的文章中沒有已發布文章。");
     if (!window.confirm(`確定取消發布選取的 ${ids.length} 篇文章嗎？`)) return;
-    const supabase = getSupabaseBrowserClient(); if (!supabase) return;
-    const { error } = await supabase.from("stories").update({ status: "draft", updated_at: new Date().toISOString() }).in("source_id", ids);
-    if (error) return setMessage(`取消發布失敗：${error.message}`);
-    setDrafts((items) => items.map((draft) => ids.includes(draft.draftId) ? { ...draft, status: "draft" } : draft)); setSelected([]); setMessage(`已取消發布 ${ids.length} 篇文章。`);
+    const targets = drafts.filter((draft) => ids.includes(draft.draftId));
+    if (await applyWorkflow("unpublish", targets)) { setSelected([]); setMessage(`已取消發布 ${ids.length} 篇文章。`); }
   }
 
   async function moveSelectedToTrash() {
     if (!selected.length) return setMessage("請先選擇文章。");
     if (!window.confirm(`確定將選取的 ${selected.length} 篇文章移至垃圾桶嗎？`)) return;
-    const supabase = getSupabaseBrowserClient(); if (!supabase) return;
-    const now = new Date().toISOString(); const { error } = await supabase.from("stories").update({ status: "trash", deleted_at: now, updated_at: now }).in("source_id", selected);
-    if (error) return setMessage(`移至垃圾桶失敗：${error.message}`);
-    setDrafts((items) => items.map((draft) => selected.includes(draft.draftId) ? { ...draft, status: "trash", deletedAt: now } : draft)); setMessage(`已將 ${selected.length} 篇文章移至垃圾桶。`); setSelected([]);
+    const targets = drafts.filter((draft) => selected.includes(draft.draftId) && draft.status !== "trash");
+    if (!targets.length) return setMessage("選取的文章已在垃圾桶中。");
+    if (await applyWorkflow("trash", targets)) { setMessage(`已將 ${targets.length} 篇文章移至垃圾桶。`); setSelected([]); }
   }
 
   async function restoreSelected() {
     const ids = drafts.filter((draft) => selected.includes(draft.draftId) && draft.status === "trash").map((draft) => draft.draftId);
     if (!ids.length) return setMessage("選取的文章中沒有垃圾桶項目。");
-    const supabase = getSupabaseBrowserClient(); if (!supabase) return;
-    const { error } = await supabase.from("stories").update({ status: "draft", deleted_at: null, updated_at: new Date().toISOString() }).in("source_id", ids);
-    if (error) return setMessage(`復原失敗：${error.message}`);
-    setDrafts((items) => items.map((draft) => ids.includes(draft.draftId) ? { ...draft, status: "draft", deletedAt: null } : draft)); setMessage(`已復原 ${ids.length} 篇文章。`); setSelected([]);
+    const targets = drafts.filter((draft) => ids.includes(draft.draftId));
+    if (await applyWorkflow("restore", targets)) { setMessage(`已復原 ${ids.length} 篇文章。`); setSelected([]); }
   }
 
   const allVisibleSelected = list.length > 0 && list.every((draft) => selected.includes(draft.draftId));

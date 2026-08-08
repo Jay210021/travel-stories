@@ -6,3 +6,12 @@ export function getSupabaseBrowserClient() {
   if (!url || !key) return null;
   return createBrowserClient(url, key);
 }
+
+export async function isCurrentUserAuthor() {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return false;
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return false;
+  const { data: isAuthor } = await supabase.rpc("is_author");
+  return isAuthor === true;
+}

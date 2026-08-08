@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { runStoryWorkflow } from "@/lib/story-workflow";
 import PhotoUploader from "./PhotoUploader";
 import VideoUploader from "./VideoUploader";
 import ContentSafety from "./ContentSafety";
@@ -41,12 +42,8 @@ export default function StoryComposer({ accountStatus }: { accountStatus: string
   async function publish() {
     const savedStoryId = await saveDraft();
     if (!savedStoryId) return;
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) return;
-    const publishedAt = form.publishedAt ? new Date(`${form.publishedAt}T00:00:00`).toISOString() : new Date().toISOString();
-    const slug = `story-${savedStoryId.replaceAll("-", "")}`;
-    const { error } = await supabase.from("stories").update({ status: "published", slug, published_at: publishedAt, updated_at: new Date().toISOString() }).eq("id", savedStoryId);
-    setMessage(error ? `發布失敗：${error.message}` : "文章已發布，可在公開首頁看到。");
+    try { await runStoryWorkflow("publish", [savedStoryId]); setMessage("文章已發布，可在公開首頁看到。"); }
+    catch (error) { setMessage(`發布失敗：${error instanceof Error ? error.message : "請再試一次"}`); }
   }
 
   return <main className="min-h-screen px-6 py-8"><section className="mx-auto max-w-6xl py-8 sm:py-12">

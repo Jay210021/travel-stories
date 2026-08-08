@@ -1,11 +1,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
+import { getCurrentAuthor } from "@/lib/author-access";
 
 const exportRoot = path.resolve(process.cwd(), "../facebook-export");
 const types: Record<string, string> = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".gif": "image/gif", ".mp4": "video/mp4", ".mov": "video/quicktime" };
 
 export async function GET(request: NextRequest) {
+  if (!await getCurrentAuthor()) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const relativePath = request.nextUrl.searchParams.get("path");
   if (!relativePath) return NextResponse.json({ error: "Missing path" }, { status: 400 });
   const target = path.resolve(exportRoot, relativePath);

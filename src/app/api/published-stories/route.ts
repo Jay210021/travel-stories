@@ -1,3 +1,3 @@
 import { NextResponse } from "next/server";
-import { getPublishedStories } from "@/lib/published-stories";
-export async function GET() { return NextResponse.json({ stories: await getPublishedStories() }); }
+import { listStoryIndex } from "@/lib/public-reading";
+export async function GET() { return NextResponse.json({ stories: await listStoryIndex() }); }

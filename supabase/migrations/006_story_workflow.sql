@@ -1,0 +1,34 @@
+-- Atomic author-only transitions for publish, unpublish, trash and restore.
+create or replace function public.apply_story_workflow(workflow_action text, story_ids uuid[])
+returns table(id uuid, status text, published_at timestamptz, deleted_at timestamptz, slug text)
+language plpgsql security definer set search_path = public as $$
+declare target_count integer;
+begin
+  if not public.is_author() then raise exception 'not authorized'; end if;
+  if workflow_action not in ('publish', 'unpublish', 'trash', 'restore') then raise exception 'invalid workflow action'; end if;
+  if coalesce(cardinality(story_ids), 0) = 0 then raise exception 'no stories selected'; end if;
+  if (select count(distinct item) from unnest(story_ids) as item) <> cardinality(story_ids) then raise exception 'duplicate story ids'; end if;
+
+  select count(*) into target_count from public.stories
+  where stories.id = any(story_ids) and case workflow_action
+    when 'publish' then stories.status in ('draft', 'published')
+    when 'unpublish' then stories.status = 'published'
+    when 'trash' then stories.status in ('draft', 'published')
+    when 'restore' then stories.status = 'trash'
+  end;
+  if target_count <> cardinality(story_ids) then raise exception 'one or more stories cannot make this transition'; end if;
+
+  if workflow_action = 'publish' then
+    update public.stories set status = 'published', slug = coalesce(slug, 'story-' || replace(id::text, '-', '')), published_at = coalesce(published_at, now()), deleted_at = null, updated_at = now() where id = any(story_ids);
+  elsif workflow_action = 'unpublish' then
+    update public.stories set status = 'draft', updated_at = now() where id = any(story_ids);
+  elsif workflow_action = 'trash' then
+    update public.stories set status = 'trash', deleted_at = now(), updated_at = now() where id = any(story_ids);
+  else
+    update public.stories set status = 'draft', deleted_at = null, updated_at = now() where id = any(story_ids);
+  end if;
+
+  return query select stories.id, stories.status, stories.published_at, stories.deleted_at, stories.slug from public.stories where stories.id = any(story_ids);
+end;
+$$;
+grant execute on function public.apply_story_workflow(text, uuid[]) to authenticated;

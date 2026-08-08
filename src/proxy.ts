@@ -1,8 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const authors = new Set(["author-one@example.invalid", "author-two@example.invalid"]);
-
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -18,7 +16,8 @@ export async function proxy(request: NextRequest) {
     },
   } });
   const { data } = await supabase.auth.getUser();
-  if (!data.user?.email || !authors.has(data.user.email.toLowerCase())) {
+  const { data: isAuthor } = data.user ? await supabase.rpc("is_author") : { data: false };
+  if (!isAuthor) {
     const login = new URL("/admin", request.url);
     login.searchParams.set("next", request.nextUrl.pathname);
     return NextResponse.redirect(login);
