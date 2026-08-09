@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/*.test.mts",
+    "verify:taxonomy": "node scripts/verify-content-navigation.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",

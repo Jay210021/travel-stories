@@ -1,0 +1,13 @@
+"use client";
+
+import { useEffect, useState } from "react";
+type Taxon = { id: string; label: string; kind: "destination" | "topic" | "system"; parent_id: string | null };
+
+export default function StoryTaxonomyManager({ storyId }: { storyId: string }) {
+  const [taxa, setTaxa] = useState<Taxon[]>([]); const [selected, setSelected] = useState<string[]>([]); const [message, setMessage] = useState("分類載入中…"); const [saving, setSaving] = useState(false);
+  useEffect(() => { fetch(`/api/story-taxa?storyId=${encodeURIComponent(storyId)}`).then(async (response) => ({ response, data: await response.json() })).then(({ response, data }) => { if (response.ok) { setTaxa(data.taxa.filter((item: Taxon) => item.kind !== "system")); setSelected(data.selected); setMessage(""); } else setMessage(data.error || "分類載入失敗。"); }).catch(() => setMessage("分類載入失敗。")); }, [storyId]);
+  function toggle(id: string) { setSelected((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]); }
+  async function save() { setSaving(true); const response = await fetch("/api/story-taxa", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ storyId, taxonIds: selected }) }); const data = await response.json(); setSaving(false); setMessage(response.ok ? "文章分類已儲存。" : data.error || "分類儲存失敗。"); }
+  const roots = taxa.filter((item) => !item.parent_id);
+  return <section className="mt-6 rounded-2xl bg-[#f5f7f3] p-5"><h3 className="font-medium text-[#31413d]">文章分類</h3><p className="mt-1 text-xs text-[#7a8b83]">一篇文章可以同時選擇目的地與主題；父分類頁會自動包含子分類文章。</p>{message && <p className="mt-3 text-xs text-[#718078]">{message}</p>}<div className="mt-4 space-y-4">{roots.map((root) => <div key={root.id}><label className={`inline-flex cursor-pointer rounded-full px-3 py-2 text-sm ${selected.includes(root.id) ? "bg-[#c1664b] text-white" : "bg-white text-[#52655d]"}`}><input type="checkbox" className="sr-only" checked={selected.includes(root.id)} onChange={() => toggle(root.id)} />{root.label}</label><div className="mt-2 flex flex-wrap gap-2 pl-4">{taxa.filter((item) => item.parent_id === root.id).map((child) => <label key={child.id} className={`cursor-pointer rounded-full border px-3 py-2 text-sm ${selected.includes(child.id) ? "border-[#c1664b] bg-[#fff2eb] text-[#c1664b]" : "border-[#d3dfd8] bg-white text-[#64776d]"}`}><input type="checkbox" className="sr-only" checked={selected.includes(child.id)} onChange={() => toggle(child.id)} />{child.label}</label>)}</div></div>)}</div><button type="button" onClick={() => void save()} disabled={saving} className="mt-5 rounded-full border border-[#557166] px-4 py-2 text-sm text-[#557166] disabled:opacity-50">儲存文章分類</button></section>;
+}
