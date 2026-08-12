@@ -8,7 +8,7 @@ const drafts = JSON.parse(await fs.readFile(new URL("../docs/facebook-drafts.jso
 const response = await fetch(`${url}/rest/v1/stories?on_conflict=source_id`, {
   method: "POST",
   headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=representation" },
-  body: JSON.stringify(drafts.map((draft) => ({ source: "facebook", source_id: draft.draftId, title: draft.title, body: draft.body, category: draft.category, published_at: draft.publishedAt, status: "draft" }))),
+  body: JSON.stringify(drafts.map((draft) => ({ source: "facebook", source_id: draft.draftId, title: draft.title, body: draft.body, published_at: draft.publishedAt, status: "draft" }))),
 });
 if (!response.ok) throw new Error(`Supabase import failed (${response.status}): ${await response.text()}`);
 console.log(`Imported ${drafts.length} draft stories.`);

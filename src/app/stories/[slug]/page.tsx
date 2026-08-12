@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Breadcrumbs, { type BreadcrumbItem } from "@/app/Breadcrumbs";
 import PublicNavbar from "@/app/PublicNavbar";
 import { getStoryBySlug, publicMediaUrl } from "@/lib/public-reading";
-import { resolveDestination, storyDestinationCrumbs } from "@/lib/destination";
+import { storyDestinationCrumbs } from "@/lib/destination";
 import ShareButton from "./ShareButton";
 import ArticleEditor from "./ArticleEditor";
 import ViewTracker from "./ViewTracker";
@@ -17,15 +17,11 @@ export default async function StoryPage({
   const story = await getStoryBySlug((await params).slug);
   if (!story) notFound();
 
-  const destination = resolveDestination(story);
   const breadcrumbs: BreadcrumbItem[] = [
     { label: "首頁", href: "/" },
     ...storyDestinationCrumbs(story),
     { label: story.title },
   ];
-  const destinationLabel =
-    destination?.country?.label ?? destination?.region.label ?? story.country ?? "";
-
   return (
     <main className="min-h-screen bg-[#fdfcf8]">
       <ViewTracker storyId={story.id} />
@@ -34,7 +30,7 @@ export default async function StoryPage({
         <Breadcrumbs items={breadcrumbs} />
         <header className="mx-auto mt-12 max-w-3xl">
           <p className="text-xs tracking-[0.16em] text-[#c1664b]">
-            {story.category} · {destinationLabel} {story.city ?? ""}
+            {[...story.classification_labels, story.city].filter(Boolean).join(" · ")}
           </p>
           <h1 className="mt-4 text-4xl font-semibold leading-tight text-[#31413d] sm:text-6xl">
             {story.title}
@@ -56,9 +52,6 @@ export default async function StoryPage({
             storyId={story.id}
             sourceId={story.source_id ?? ""}
             title={story.title}
-            category={story.category}
-            country={story.country}
-            city={story.city}
           />
         </header>
 

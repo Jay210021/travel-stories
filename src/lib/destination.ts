@@ -1,7 +1,7 @@
 export type RegionSlug = "europe" | "asia" | "africa" | "taiwan";
 type Region = { slug: RegionSlug; label: string; href: string };
 type Country = { slug: string; label: string; region: RegionSlug; aliases: string[]; href: string };
-export type DestinationStory = { title: string; body: string; category: string; country: string | null };
+export type DestinationStory = { title: string; body: string; country: string | null };
 export type DestinationCrumb = { label: string; href?: string };
 export type ResolvedDestination = { region: Region; country?: Omit<Country, "aliases"> };
 export type DestinationNavigation = { slug: RegionSlug; label: string; countries: { slug: string; label: string }[] }[];
@@ -22,7 +22,7 @@ function countryIn(content: string) { const normalized = content.toLowerCase(); 
 function resolved(country: Country): ResolvedDestination { const region = regions.find((item) => item.slug === country.region)!; return { region, ...(country.slug === region.slug ? {} : { country: { slug: country.slug, label: country.label, region: country.region, href: country.href } }) }; }
 
 export function resolveDestination(story: DestinationStory): ResolvedDestination | null {
-  const country = (story.country && countryIn(story.country)) || countryIn(story.title) || (story.category === "台灣旅行" ? countries.find((item) => item.slug === "taiwan")! : null) || countryIn(story.body);
+  const country = (story.country && countryIn(story.country)) || countryIn(story.title) || countryIn(story.body);
   return country ? resolved(country) : null;
 }
 

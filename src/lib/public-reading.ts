@@ -3,8 +3,8 @@ import { destinationNavigation, resolveDestination, type DestinationNavigation, 
 import type { PublicNavbarItem } from "@/lib/navbar-types";
 import { descendantIds } from "@/lib/content-taxonomy-order";
 
-type StoryRow = { id: string; source_id: string | null; slug: string | null; title: string; body: string; category: string; country: string | null; city: string | null; published_at: string | null; cover_path: string | null };
-export type PublicStoryCard = Omit<StoryRow, "slug"> & { slug: string };
+type StoryRow = { id: string; source_id: string | null; slug: string | null; title: string; body: string; country: string | null; city: string | null; published_at: string | null; cover_path: string | null };
+export type PublicStoryCard = Omit<StoryRow, "slug"> & { slug: string; classification_labels: string[] };
 export type PublicStory = PublicStoryCard & { media: PublicMedia[] };
 export type PublicMedia = { kind: "photo" | "video"; storage_path: string; caption: string; alt_text: string };
 export type PublicVideo = PublicMedia & { story: PublicStoryCard };
@@ -13,8 +13,10 @@ export type ManagedDestination = { slug: string; label: string; region_slug: Reg
 export type PublicTaxon = { id: string; slug: string; label: string; kind: "destination" | "topic"; parent_id: string | null; aliases: string[] };
 type NavbarRow = { id: string; label: string; item_type: "link" | "destination"; href: string | null; destination_region: RegionSlug | null };
 type TaxonRow = { id: string; slug: string; label: string; kind: "destination" | "topic" | "system"; parent_id: string | null; show_in_nav: boolean; sort_order: number; href: string | null };
+type StoryTaxonRow = { story_id: string; taxon_id: string };
+type ClassificationTaxonRow = { id: string; label: string; parent_id: string | null };
 
-const storyFields = "id,source_id,slug,title,body,category,country,city,published_at,cover_path";
+const storyFields = "id,source_id,slug,title,body,country,city,published_at,cover_path";
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -23,14 +25,64 @@ function getSupabase() {
   return createClient(url, key);
 }
 
-function normalizeStory(story: StoryRow): PublicStoryCard {
-  return { ...story, slug: story.slug || `story-${story.id.replaceAll("-", "")}` };
+function fallbackClassificationLabels(story: StoryRow) {
+  const destination = resolveDestination(story);
+  if (destination) return [destination.country?.label ?? destination.region.label];
+  return story.country ? [story.country] : [];
+}
+
+async function readStoryClassificationLabels(storyIds: string[]) {
+  const labels = new Map<string, string[]>();
+  if (!storyIds.length) return labels;
+
+  const supabase = getSupabase();
+  const { data: assignmentData, error: assignmentError } = await supabase
+    .from("story_taxa")
+    .select("story_id,taxon_id")
+    .in("story_id", storyIds);
+  if (assignmentError) throw assignmentError;
+
+  const assignments = (assignmentData ?? []) as StoryTaxonRow[];
+  const taxonIds = [...new Set(assignments.map((item) => item.taxon_id))];
+  if (!taxonIds.length) return labels;
+
+  const { data: taxonData, error: taxonError } = await supabase
+    .from("content_taxa")
+    .select("id,label,parent_id")
+    .in("id", taxonIds);
+  if (taxonError) throw taxonError;
+
+  const taxa = (taxonData ?? []) as ClassificationTaxonRow[];
+  const taxonById = new Map(taxa.map((taxon) => [taxon.id, taxon]));
+  for (const storyId of storyIds) {
+    const assignedIds = assignments.filter((item) => item.story_id === storyId).map((item) => item.taxon_id);
+    const parentIds = new Set(assignedIds.map((id) => taxonById.get(id)?.parent_id).filter((id): id is string => Boolean(id)));
+    const storyLabels = assignedIds
+      .filter((id) => !parentIds.has(id))
+      .map((id) => taxonById.get(id)?.label)
+      .filter((label): label is string => Boolean(label));
+    if (storyLabels.length) labels.set(storyId, [...new Set(storyLabels)]);
+  }
+  return labels;
+}
+
+function normalizeStory(story: StoryRow, classificationLabels?: string[]): PublicStoryCard {
+  return {
+    ...story,
+    slug: story.slug || `story-${story.id.replaceAll("-", "")}`,
+    classification_labels: classificationLabels?.length ? classificationLabels : fallbackClassificationLabels(story),
+  };
+}
+
+async function normalizeStories(stories: StoryRow[]) {
+  const labels = await readStoryClassificationLabels(stories.map((story) => story.id));
+  return stories.map((story) => normalizeStory(story, labels.get(story.id)));
 }
 
 async function readPublishedStoryCards(): Promise<PublicStoryCard[]> {
   const { data, error } = await getSupabase().from("stories").select(storyFields).eq("status", "published").order("published_at", { ascending: false });
   if (error) throw error;
-  return (data ?? []).map(normalizeStory);
+  return normalizeStories((data ?? []) as StoryRow[]);
 }
 
 export async function listStoryIndex() {
@@ -41,23 +93,24 @@ export async function getStoryBySlug(slug: string): Promise<PublicStory | null> 
   const { data: story, error } = await getSupabase().from("stories").select(storyFields).eq("status", "published").eq("slug", slug).maybeSingle();
   if (error) throw error;
   if (!story) return null;
-  const { data: media, error: mediaError } = await getSupabase().from("story_media").select("kind,storage_path,caption,alt_text").eq("story_id", story.id).order("sort_order");
+  const [{ data: media, error: mediaError }, classificationLabels] = await Promise.all([
+    getSupabase().from("story_media").select("kind,storage_path,caption,alt_text").eq("story_id", story.id).order("sort_order"),
+    readStoryClassificationLabels([story.id]),
+  ]);
   if (mediaError) throw mediaError;
-  return { ...normalizeStory(story), media: (media ?? []) as PublicMedia[] };
+  return { ...normalizeStory(story as StoryRow, classificationLabels.get(story.id)), media: (media ?? []) as PublicMedia[] };
 }
 
 export async function listStoriesForRegion(region: RegionSlug) {
+  const taxon = await getPublicTaxon(region);
+  if (taxon) return listStoriesForTaxon(taxon);
   return (await readPublishedStoryCards()).filter((story) => resolveDestination(story)?.region.slug === region);
 }
 
 export async function listStoriesForCountry(country: string) {
+  const taxon = await getPublicTaxon(country);
+  if (taxon) return listStoriesForTaxon(taxon);
   return (await readPublishedStoryCards()).filter((story) => resolveDestination(story)?.country?.slug === country || resolveDestination(story)?.region.slug === country);
-}
-
-export async function listStoriesForCategory(category: string) {
-  const { data, error } = await getSupabase().from("stories").select(storyFields).eq("status", "published").eq("category", category).order("published_at", { ascending: false });
-  if (error) throw error;
-  return (data ?? []).map(normalizeStory);
 }
 
 export async function getManagedDestination(slug: string): Promise<ManagedDestination | null> {
@@ -84,7 +137,7 @@ export async function listStoriesForTaxon(taxon: PublicTaxon) {
   const { data: assignments } = await getSupabase().from("story_taxa").select("story_id").in("taxon_id", [...descendants]);
   const assigned = new Set((assignments ?? []).map((item) => item.story_id));
   const aliases = [...new Set([taxon.label, ...taxon.aliases, ...relatedTaxa.flatMap((item) => [item.label, ...(item.aliases ?? [])])])].map((alias) => alias.toLowerCase());
-  return (await readPublishedStoryCards()).filter((story) => assigned.has(story.id) || [story.country ?? "", story.category, story.title, story.body].some((value) => aliases.some((alias) => value.toLowerCase().includes(alias))));
+  return (await readPublishedStoryCards()).filter((story) => assigned.has(story.id) || [story.country ?? "", story.title, story.body].some((value) => aliases.some((alias) => value.toLowerCase().includes(alias))));
 }
 
 export async function getPublicTaxonCrumbs(taxon: PublicTaxon) {
@@ -98,9 +151,14 @@ export async function getPublicTaxonCrumbs(taxon: PublicTaxon) {
 export async function listVideos(): Promise<PublicVideo[]> {
   const { data, error } = await getSupabase().from("story_media").select(`kind,storage_path,caption,alt_text,stories!inner(${storyFields})`).eq("kind", "video").order("sort_order");
   if (error) throw error;
+  const storyRows = (data ?? []).flatMap((media) => {
+    const story = Array.isArray(media.stories) ? media.stories[0] : media.stories;
+    return story ? [story as StoryRow] : [];
+  });
+  const classificationLabels = await readStoryClassificationLabels(storyRows.map((story) => story.id));
   return (data ?? []).flatMap((media) => {
     const story = Array.isArray(media.stories) ? media.stories[0] : media.stories;
-    return story ? [{ kind: media.kind as PublicMedia["kind"], storage_path: media.storage_path, caption: media.caption, alt_text: media.alt_text, story: normalizeStory(story as StoryRow) }] : [];
+    return story ? [{ kind: media.kind as PublicMedia["kind"], storage_path: media.storage_path, caption: media.caption, alt_text: media.alt_text, story: normalizeStory(story as StoryRow, classificationLabels.get(story.id)) }] : [];
   });
 }
 
@@ -119,14 +177,10 @@ export async function getPublicNavbarItems(): Promise<PublicNavbarItem[]> {
   if (!taxonError && taxonData?.length) {
     const taxa = taxonData as TaxonRow[];
     const roots = taxa.filter((item) => !item.parent_id);
-    const legacyRegions = new Map(navigation.map((region) => [region.slug, region]));
     return roots.flatMap<PublicNavbarItem>((root) => {
       if (root.kind === "system") return root.href ? [{ id: root.id, type: "link", label: root.label, href: root.href }] : [];
-      const legacyRegion = legacyRegions.get(root.slug as RegionSlug);
       const customChildren = taxa.filter((item) => item.parent_id === root.id).map((child) => ({ id: child.id, label: child.label, href: `/collections/${child.slug}` }));
-      const legacyChildren = legacyRegion ? legacyRegion.countries.map((country) => ({ id: `legacy-${country.slug}`, label: country.label, href: `/regions/${legacyRegion.slug}/${country.slug}` })) : [];
-      const seen = new Set<string>(); const children = [...legacyChildren, ...customChildren].filter((item) => { const key = item.label.toLowerCase(); if (seen.has(key)) return false; seen.add(key); return true; });
-      return [{ id: root.id, type: "group", label: root.label, href: legacyRegion ? `/regions/${legacyRegion.slug}` : `/collections/${root.slug}`, children }];
+      return [{ id: root.id, type: "group", label: root.label, href: `/collections/${root.slug}`, children: customChildren }];
     });
   }
   const { data, error } = await getSupabase().from("navbar_items").select("id,label,item_type,href,destination_region").eq("is_visible", true).order("sort_order").order("created_at");
