@@ -46,6 +46,21 @@ export default function Home() {
         <p className="text-sm tracking-[0.25em] text-[#c1664b]">OUR TRAVEL ARCHIVE</p>
         <h1 className="mt-4 max-w-2xl text-5xl font-semibold leading-tight sm:text-7xl">把一起走過的路，寫成故事。</h1>
         <p className="mt-6 max-w-xl text-lg leading-8 text-[#687a73]">記錄我們的旅行、生活，以及那些值得回頭看的日子。</p>
+        <a
+          href="https://www.facebook.com/profile.php?id=61562870552784"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="前往天天寶寶旅行趣 Facebook 粉絲專頁（另開新分頁）"
+          className="mt-8 inline-flex items-center gap-3 rounded-full bg-[#1877f2] px-5 py-3 font-semibold text-white shadow-sm transition hover:bg-[#166fe5] hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1877f2]"
+        >
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white" aria-hidden="true">
+            <svg viewBox="0 0 320 512" className="h-5 w-4 fill-[#1877f2]">
+              <path d="M279.14 288l14.22-92.66h-88.91v-60.13c0-25.35 12.42-50.06 52.24-50.06H297V6.26S260.43 0 225.36 0c-73.22 0-121.08 44.38-121.08 124.72v70.62H22.89V288h81.39v224h100.17V288z" />
+            </svg>
+          </span>
+          追蹤 Facebook 粉絲專頁
+          <span aria-hidden="true">↗</span>
+        </a>
       </header>
       <section id="stories" className="mx-auto max-w-6xl px-6 pb-24">
         {isLoading ? (
