@@ -67,9 +67,14 @@ export default function DraftManager({ initialDrafts }: { initialDrafts: Draft[]
     if (!supabase) { const error = "找不到 Supabase 設定。"; setMessage(error); return { ok: false, error }; }
     setSaving(true);
     try {
-      const { error } = await supabase.from("stories").update({ title: active.title.trim(), body: active.body, published_at: active.publishedAt, updated_at: new Date().toISOString() }).eq("id", active.id);
-      if (error) throw error;
-      await taxonomyRef.current?.save(active.id);
+      if (active.source === "facebook" && active.draftId.startsWith("facebook-live:")) {
+        const { error } = await supabase.rpc("save_facebook_editorial_story", { p_story_id: active.id, p_title: active.title.trim(), p_body: active.body, p_published_at: active.publishedAt, p_taxon_id: taxonomyRef.current?.selectedTaxonId() });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("stories").update({ title: active.title.trim(), body: active.body, published_at: active.publishedAt, updated_at: new Date().toISOString() }).eq("id", active.id);
+        if (error) throw error;
+        await taxonomyRef.current?.save(active.id);
+      }
       setMessage("文章已儲存。");
       return { ok: true };
     } catch (error) {

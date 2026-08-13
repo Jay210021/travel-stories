@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/facebook-import",
+      "schedule": "0 19 * * *"
+    }
+  ]
+}

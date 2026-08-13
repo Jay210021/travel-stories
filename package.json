@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/*.test.mts",
+    "test:facebook": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/facebook-*.test.mts",
     "verify:taxonomy": "node scripts/verify-content-navigation.mjs"
   },
   "dependencies": {

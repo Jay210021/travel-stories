@@ -7,6 +7,7 @@ type Taxon = { id: string; label: string; kind: "destination" | "topic" | "syste
 export type StoryTaxonomyHandle = {
   validate: () => string | null;
   save: (storyIdOverride?: string) => Promise<void>;
+  selectedTaxonId: () => string;
 };
 
 const StoryTaxonomyManager = forwardRef<StoryTaxonomyHandle, { storyId?: string | null }>(function StoryTaxonomyManager({ storyId }, ref) {
@@ -28,14 +29,15 @@ const StoryTaxonomyManager = forwardRef<StoryTaxonomyHandle, { storyId?: string 
         if (!response.ok) throw new Error(data.error || "分類載入失敗。");
         const available = (data.taxa as Taxon[]).filter((item) => item.kind !== "system");
         const selected = new Set<string>(data.selected ?? []);
-        const selectedChild = available.find((item) => item.parent_id && selected.has(item.id));
+        const suggestedId = selected.size ? null : (data.suggested as string | null | undefined);
+        const selectedChild = available.find((item) => item.parent_id && (selected.has(item.id) || item.id === suggestedId));
         const selectedRoot = selectedChild
           ? available.find((item) => item.id === selectedChild.parent_id)
-          : available.find((item) => !item.parent_id && selected.has(item.id));
+          : available.find((item) => !item.parent_id && (selected.has(item.id) || item.id === suggestedId));
         setTaxa(available);
         setRootId(selectedRoot?.id ?? "");
         setChildId(selectedChild?.id ?? "");
-        setMessage("");
+        setMessage(suggestedId ? "已依 Facebook 內容帶入建議分類，請確認後再儲存。" : "");
       })
       .catch((error) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
@@ -67,7 +69,7 @@ const StoryTaxonomyManager = forwardRef<StoryTaxonomyHandle, { storyId?: string 
     if (!response.ok) throw new Error(data.error || "分類儲存失敗。");
   }
 
-  useImperativeHandle(ref, () => ({ validate, save }));
+  useImperativeHandle(ref, () => ({ validate, save, selectedTaxonId: () => childId || rootId }));
 
   return (
     <section className="mt-6 rounded-2xl bg-[#f5f7f3] p-5">

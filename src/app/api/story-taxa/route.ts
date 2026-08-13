@@ -5,8 +5,9 @@ export async function GET(request: Request) {
   const author = await getAuthorContext(); if (!author) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const storyId = new URL(request.url).searchParams.get("storyId");
   const assignmentsQuery = storyId ? author.supabase.from("story_taxa").select("taxon_id").eq("story_id", storyId) : Promise.resolve({ data: [] });
-  const [{ data: taxa, error }, { data: assignments }] = await Promise.all([author.supabase.from("content_taxa").select("id,label,kind,parent_id").eq("show_in_nav", true).order("sort_order").order("label"), assignmentsQuery]);
-  return error ? NextResponse.json({ error: error.message }, { status: 400 }) : NextResponse.json({ taxa: taxa ?? [], selected: (assignments ?? []).map((item) => item.taxon_id) });
+  const suggestionQuery = storyId ? author.supabase.from("facebook_imports").select("suggested_taxon_id").eq("story_id", storyId).maybeSingle() : Promise.resolve({ data: null });
+  const [{ data: taxa, error }, { data: assignments }, { data: suggestion }] = await Promise.all([author.supabase.from("content_taxa").select("id,label,kind,parent_id").eq("show_in_nav", true).order("sort_order").order("label"), assignmentsQuery, suggestionQuery]);
+  return error ? NextResponse.json({ error: error.message }, { status: 400 }) : NextResponse.json({ taxa: taxa ?? [], selected: (assignments ?? []).map((item) => item.taxon_id), suggested: suggestion?.suggested_taxon_id ?? null });
 }
 export async function PUT(request: Request) {
   const author = await getAuthorContext(); if (!author) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

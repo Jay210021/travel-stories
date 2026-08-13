@@ -15,9 +15,10 @@
 
 ## P1：Facebook 匯入
 
-1. 「建立匯入草稿」將勾選貼文 upsert 到 `stories`。
-2. 保留原始 `publishedAt`、整理後標題與 `source_id`，重複執行不建立重複文章。
-3. 顯示成功、略過與失敗數量。
+1. 已支援既有備份檔手動匯入，保留原始 `publishedAt`、整理後標題與 `source_id`。
+2. 已新增啟用後新貼文的 Webhook 自動草稿、每日補漏、圖片搬移與冪等處理。
+3. 已新增目前匯入狀態、成功與失敗的 Facebook 匯入嘗試紀錄、最多三次自動重試及人工重試。
+4. 真實連線仍需依 `facebook-auto-import-setup.md` 建立 Meta App、Page Token 與 Webhook。
 
 ## P1：刪除與復原
 

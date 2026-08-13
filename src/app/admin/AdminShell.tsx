@@ -8,7 +8,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 const navigation = [
   { href: "/admin", label: "新增文章", symbol: "+" },
   { href: "/admin/drafts", label: "草稿與文章", symbol: "▤" },
-  { href: "/admin/import-preview", label: "Facebook 匯入", symbol: "↓" },
+  { href: "/admin/import-preview", label: "Facebook 同步", symbol: "↓" },
   { href: "/admin/analytics", label: "閱讀統計", symbol: "↗" },
   { href: "/admin/content-navigation", label: "導覽與分類", symbol: "☷" },
 ];

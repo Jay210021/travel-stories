@@ -1,9 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import FacebookImportPreview from "./FacebookImportPreview";
+import FacebookImportDashboard from "./FacebookImportDashboard";
+import LegacyFacebookArchiveImport, { type ArchivedFacebookPost } from "./LegacyFacebookArchiveImport";
 
-export default async function ImportPreviewPage() {
-  const draftsPath = path.join(process.cwd(), "docs", "facebook-drafts.json");
-  const data = JSON.parse(await fs.readFile(draftsPath, "utf8"));
-  return <FacebookImportPreview posts={data.drafts} />;
+export default async function FacebookImportPage() {
+  const archive = JSON.parse(await fs.readFile(path.join(process.cwd(), "docs", "facebook-drafts.json"), "utf8")) as { drafts: ArchivedFacebookPost[] };
+  return <><FacebookImportDashboard/><LegacyFacebookArchiveImport posts={archive.drafts}/></>;
 }
