@@ -2,11 +2,12 @@ import { createClient } from "@supabase/supabase-js";
 import { destinationNavigation, resolveDestination, type DestinationNavigation, type RegionSlug } from "@/lib/destination";
 import type { PublicNavbarItem } from "@/lib/navbar-types";
 import { descendantIds } from "@/lib/content-taxonomy-order";
+import { getSupabaseServiceClient } from "@/lib/supabase-service";
 
 type StoryRow = { id: string; source_id: string | null; slug: string | null; title: string; body: string; country: string | null; city: string | null; published_at: string | null; cover_path: string | null };
 export type PublicStoryCard = Omit<StoryRow, "slug"> & { slug: string; classification_labels: string[] };
 export type PublicStory = PublicStoryCard & { media: PublicMedia[] };
-export type PublicMedia = { kind: "photo" | "video"; storage_path: string; caption: string; alt_text: string };
+export type PublicMedia = { kind: "photo" | "video"; storage_path: string; caption: string; alt_text: string; url: string };
 export type PublicVideo = PublicMedia & { story: PublicStoryCard };
 export type PublicNavigation = DestinationNavigation;
 export type ManagedDestination = { slug: string; label: string; region_slug: RegionSlug; aliases: string[] };
@@ -98,7 +99,8 @@ export async function getStoryBySlug(slug: string): Promise<PublicStory | null> 
     readStoryClassificationLabels([story.id]),
   ]);
   if (mediaError) throw mediaError;
-  return { ...normalizeStory(story as StoryRow, classificationLabels.get(story.id)), media: (media ?? []) as PublicMedia[] };
+  const signedMedia = await Promise.all((media ?? []).map(async (item) => ({ ...item, url: await signedMediaUrl(item.storage_path) })));
+  return { ...normalizeStory(story as StoryRow, classificationLabels.get(story.id)), media: signedMedia as PublicMedia[] };
 }
 
 export async function listStoriesForRegion(region: RegionSlug) {
@@ -156,10 +158,11 @@ export async function listVideos(): Promise<PublicVideo[]> {
     return story ? [story as StoryRow] : [];
   });
   const classificationLabels = await readStoryClassificationLabels(storyRows.map((story) => story.id));
-  return (data ?? []).flatMap((media) => {
+  const videos = (data ?? []).flatMap((media) => {
     const story = Array.isArray(media.stories) ? media.stories[0] : media.stories;
     return story ? [{ kind: media.kind as PublicMedia["kind"], storage_path: media.storage_path, caption: media.caption, alt_text: media.alt_text, story: normalizeStory(story as StoryRow, classificationLabels.get(story.id)) }] : [];
   });
+  return Promise.all(videos.map(async (video) => ({ ...video, url: await signedMediaUrl(video.storage_path) })));
 }
 
 export async function getPublicNavigation(): Promise<PublicNavigation> {
@@ -193,7 +196,10 @@ export async function getPublicNavbarItems(): Promise<PublicNavbarItem[]> {
   });
 }
 
-export function publicMediaUrl(storagePath: string) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  return url ? `${url}/storage/v1/object/public/${storagePath}` : "";
+async function signedMediaUrl(storagePath: string) {
+  const [bucket, ...parts] = storagePath.split("/");
+  if (!bucket || !parts.length || !["travel-photos", "travel-videos"].includes(bucket)) return "";
+  const { data, error } = await getSupabaseServiceClient().storage.from(bucket).createSignedUrl(parts.join("/"), 3600);
+  if (error) throw error;
+  return data.signedUrl;
 }

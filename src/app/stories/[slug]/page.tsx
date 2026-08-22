@@ -1,11 +1,13 @@
 import { notFound } from "next/navigation";
 import Breadcrumbs, { type BreadcrumbItem } from "@/app/Breadcrumbs";
 import PublicNavbar from "@/app/PublicNavbar";
-import { getStoryBySlug, publicMediaUrl } from "@/lib/public-reading";
+import { getStoryBySlug } from "@/lib/public-reading";
 import { storyDestinationCrumbs } from "@/lib/destination";
 import ShareButton from "./ShareButton";
 import ArticleEditor from "./ArticleEditor";
 import ViewTracker from "./ViewTracker";
+
+export const dynamic = "force-dynamic";
 
 /* eslint-disable @next/next/no-img-element */
 
@@ -57,7 +59,7 @@ export default async function StoryPage({
 
         <div className="mx-auto mt-12 grid max-w-4xl grid-cols-1 gap-4 sm:grid-cols-2">
           {story.media.map((media, index) => {
-            const src = publicMediaUrl(media.storage_path);
+            const src = media.url;
             const isLeadMedia = index === 0;
 
             if (media.kind === "video") {

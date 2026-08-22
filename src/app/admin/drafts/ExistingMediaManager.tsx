@@ -2,22 +2,19 @@
 
 /* eslint-disable @next/next/no-img-element */
 import { useEffect, useState } from "react";
-import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { removeMedia, reorderMedia, updateMedia } from "@/lib/media-library";
 
-type Media = { id: string; kind: "photo" | "video"; storage_path: string; sort_order: number; caption: string; alt_text: string };
+type Media = { id: string; kind: "photo" | "video"; storage_path: string; sort_order: number; caption: string; alt_text: string; url: string };
 
 export default function ExistingMediaManager({ storyId }: { storyId: string }) {
   const [items, setItems] = useState<Media[]>([]);
   const [message, setMessage] = useState("媒體載入中…");
 
   useEffect(() => {
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) return;
-    supabase.from("story_media").select("id,kind,storage_path,sort_order,caption,alt_text").eq("story_id", storyId).order("sort_order").then(({ data, error }) => {
-      setItems((data ?? []) as Media[]);
-      setMessage(error ? `載入失敗：${error.message}` : "");
-    });
+    fetch(`/api/media-library?storyId=${encodeURIComponent(storyId)}`).then(async (response) => ({ response, data: await response.json() })).then(({ response, data }) => {
+      setItems(response.ok ? data.media as Media[] : []);
+      setMessage(response.ok ? "" : data.error || "無法載入媒體");
+    }).catch(() => setMessage("無法載入媒體"));
   }, [storyId]);
 
   function edit(id: string, changes: Partial<Media>) {
@@ -55,7 +52,7 @@ export default function ExistingMediaManager({ storyId }: { storyId: string }) {
       {message && <p className="mt-2 text-sm text-[#7a8b83]">{message}</p>}
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
         {items.map((item, index) => {
-          const src = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${item.storage_path}`;
+          const src = item.url;
           return (
             <div key={item.id} className="rounded-2xl bg-[#f5f7f3] p-3">
               {item.kind === "video" ? <video src={src} controls className="aspect-video w-full rounded-xl bg-[#31413d]" /> : <img src={src} alt={item.alt_text} className="aspect-[4/3] w-full rounded-xl object-cover" />}

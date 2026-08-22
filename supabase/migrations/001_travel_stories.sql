@@ -67,9 +67,5 @@ create policy "authors manage media" on public.story_media for all using (public
 
 insert into storage.buckets (id, name, public) values ('travel-photos', 'travel-photos', true), ('travel-videos', 'travel-videos', true) on conflict (id) do nothing;
 
--- Add the two authors' Google email addresses here before using the author RLS policies:
-insert into public.author_allowlist(email)
-values
-  ('author-one@example.invalid'),
-  ('author-two@example.invalid')
-on conflict (email) do nothing;
+-- Add authors through a protected deployment step or the Supabase SQL editor.
+-- Do not commit administrator email addresses to source control.
