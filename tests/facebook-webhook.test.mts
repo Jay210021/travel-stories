@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import test from "node:test";
-import { extractFacebookChanges, verifyFacebookSignature } from "../src/lib/facebook-webhook.ts";
+import { extractFacebookChanges, isFacebookWebhookTooLarge, MAX_FACEBOOK_WEBHOOK_BYTES, verifyFacebookSignature } from "../src/lib/facebook-webhook.ts";
 
 test("accepts only a matching Meta SHA-256 webhook signature", () => {
   const body = JSON.stringify({ object: "page", entry: [] });
@@ -9,6 +9,14 @@ test("accepts only a matching Meta SHA-256 webhook signature", () => {
   assert.equal(verifyFacebookSignature(body, signature, "app-secret"), true);
   assert.equal(verifyFacebookSignature(body, "sha256=wrong", "app-secret"), false);
   assert.equal(verifyFacebookSignature(body, null, "app-secret"), false);
+});
+
+test("rejects invalid or oversized declared webhook bodies", () => {
+  assert.equal(isFacebookWebhookTooLarge(null), false);
+  assert.equal(isFacebookWebhookTooLarge(String(MAX_FACEBOOK_WEBHOOK_BYTES)), false);
+  assert.equal(isFacebookWebhookTooLarge(String(MAX_FACEBOOK_WEBHOOK_BYTES + 1)), true);
+  assert.equal(isFacebookWebhookTooLarge("invalid"), true);
+  assert.equal(isFacebookWebhookTooLarge("-1"), true);
 });
 
 test("extracts supported Page feed changes without retaining the full webhook payload", () => {

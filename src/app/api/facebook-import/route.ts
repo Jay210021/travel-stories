@@ -1,4 +1,5 @@
 import { getAuthorContext } from "@/lib/author-access";
+import { apiError } from "@/lib/api-error";
 import { getFacebookPage } from "@/lib/facebook-graph";
 import { applyLatestFacebookImport, importFacebookPostById, reconcileFacebookImports, retryFacebookImport } from "@/lib/facebook-import-runner";
 import { getSupabaseServiceClient } from "@/lib/supabase-service";
@@ -15,7 +16,7 @@ export async function GET() {
     author.supabase.from("facebook_import_attempts").select("id,page_id,post_id,attempt_number,outcome,stage,error_code,error_reason,started_at,finished_at").order("created_at", { ascending: false }).range(0, 999),
   ]);
   const error = settings.error || imports.error || attempts.error;
-  if (error) return Response.json({ error: error.message }, { status: 400 });
+  if (error) return apiError("load Facebook imports", error, "載入 Facebook 匯入資料失敗，請稍後再試。");
   const { data: stories, error: storiesError } = await author.supabase.from("stories").select("id,title,status").neq("status", "trash").order("updated_at", { ascending: false }).limit(300);
   return storiesError ? Response.json({ error: storiesError.message }, { status: 400 }) : Response.json({ settings: settings.data, imports: imports.data || [], attempts: attempts.data || [], stories: stories || [] });
 }
@@ -49,6 +50,6 @@ export async function POST(request: Request) {
     }
     return Response.json({ error: "不支援的 Facebook 匯入操作" }, { status: 400 });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Facebook 匯入操作失敗" }, { status: 400 });
+    return apiError("run Facebook import action", error, "Facebook 匯入操作失敗，請稍後再試。");
   }
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthorContext } from "@/lib/author-access";
+import { apiError } from "@/lib/api-error";
 
 type ItemInput = { label?: unknown; type?: unknown; href?: unknown; destinationRegion?: unknown; sortOrder?: unknown; isVisible?: unknown };
 const regions = new Set(["europe", "asia", "africa", "taiwan"]);
@@ -29,7 +30,7 @@ export async function GET() {
   if (error?.message.includes("Could not find the table") || error?.code === "42P01") {
     return NextResponse.json({ error: "Navbar 資料表尚未建立，請先在 Supabase 執行 008_navbar_items.sql。", migrationRequired: true }, { status: 409 });
   }
-  return error ? NextResponse.json({ error: error.message }, { status: 400 }) : NextResponse.json({ items: data ?? [] });
+  return error ? apiError("list navbar items", error) : NextResponse.json({ items: data ?? [] });
 }
 
 export async function POST(request: Request) {
@@ -38,10 +39,10 @@ export async function POST(request: Request) {
   const value = normalize((await request.json().catch(() => null)) ?? {});
   if (!value) return NextResponse.json({ error: "請填寫有效的名稱與連結／地區。" }, { status: 400 });
   const { data: lastItem, error: orderError } = await author.supabase.from("navbar_items").select("sort_order").order("sort_order", { ascending: false }).limit(1).maybeSingle();
-  if (orderError) return NextResponse.json({ error: orderError.message }, { status: 400 });
+  if (orderError) return apiError("read navbar sort order", orderError);
   const nextSortOrder = typeof value.sort_order === "number" ? value.sort_order : Math.min((lastItem?.sort_order ?? 0) + 10, 2_147_483_647);
   const { data, error } = await author.supabase.from("navbar_items").insert({ ...value, sort_order: nextSortOrder }).select("id,label,item_type,href,destination_region,sort_order,is_visible").single();
-  return error ? NextResponse.json({ error: error.message }, { status: 400 }) : NextResponse.json({ item: data });
+  return error ? apiError("create navbar item", error, "新增導覽項目失敗，請稍後再試。") : NextResponse.json({ item: data });
 }
 
 export async function PATCH(request: Request) {
@@ -52,7 +53,7 @@ export async function PATCH(request: Request) {
   const value = normalize(body.item ?? {});
   if (!value) return NextResponse.json({ error: "請填寫有效的名稱與連結／地區。" }, { status: 400 });
   const { data, error } = await author.supabase.from("navbar_items").update(value).eq("id", body.id).select("id,label,item_type,href,destination_region,sort_order,is_visible").single();
-  return error ? NextResponse.json({ error: error.message }, { status: 400 }) : NextResponse.json({ item: data });
+  return error ? apiError("update navbar item", error, "更新導覽項目失敗，請稍後再試。") : NextResponse.json({ item: data });
 }
 
 export async function DELETE(request: Request) {
@@ -61,5 +62,5 @@ export async function DELETE(request: Request) {
   const id = new URL(request.url).searchParams.get("id");
   if (!id) return NextResponse.json({ error: "Invalid navigation item" }, { status: 400 });
   const { error } = await author.supabase.from("navbar_items").delete().eq("id", id);
-  return error ? NextResponse.json({ error: error.message }, { status: 400 }) : NextResponse.json({ ok: true });
+  return error ? apiError("delete navbar item", error, "刪除導覽項目失敗，請稍後再試。") : NextResponse.json({ ok: true });
 }

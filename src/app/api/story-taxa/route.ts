@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthorContext } from "@/lib/author-access";
+import { apiError } from "@/lib/api-error";
 
 export async function GET(request: Request) {
   const author = await getAuthorContext(); if (!author) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -7,7 +8,7 @@ export async function GET(request: Request) {
   const assignmentsQuery = storyId ? author.supabase.from("story_taxa").select("taxon_id").eq("story_id", storyId) : Promise.resolve({ data: [] });
   const suggestionQuery = storyId ? author.supabase.from("facebook_imports").select("suggested_taxon_id").eq("story_id", storyId).maybeSingle() : Promise.resolve({ data: null });
   const [{ data: taxa, error }, { data: assignments }, { data: suggestion }] = await Promise.all([author.supabase.from("content_taxa").select("id,label,kind,parent_id").eq("show_in_nav", true).order("sort_order").order("label"), assignmentsQuery, suggestionQuery]);
-  return error ? NextResponse.json({ error: error.message }, { status: 400 }) : NextResponse.json({ taxa: taxa ?? [], selected: (assignments ?? []).map((item) => item.taxon_id), suggested: suggestion?.suggested_taxon_id ?? null });
+  return error ? apiError("load story classifications", error) : NextResponse.json({ taxa: taxa ?? [], selected: (assignments ?? []).map((item) => item.taxon_id), suggested: suggestion?.suggested_taxon_id ?? null });
 }
 export async function PUT(request: Request) {
   const author = await getAuthorContext(); if (!author) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -21,6 +22,6 @@ export async function PUT(request: Request) {
     if ((count ?? 0) > 0) return NextResponse.json({ error: "請繼續選擇子分類。" }, { status: 400 });
   }
   const { error } = await author.supabase.rpc("set_story_taxa", { p_story_id: body.storyId, p_taxon_ids: body.taxonIds });
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  if (error) return apiError("set story classifications", error, "儲存文章分類失敗，請稍後再試。");
   return NextResponse.json({ ok: true });
 }

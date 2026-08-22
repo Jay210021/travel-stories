@@ -1,5 +1,6 @@
 import { reconcileFacebookImports, retryFacebookEventQueue } from "@/lib/facebook-import-runner";
 import { getSupabaseServiceClient } from "@/lib/supabase-service";
+import { apiError } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -15,6 +16,6 @@ export async function GET(request: Request) {
     await supabase.rpc("purge_expired_facebook_import_attempts");
     return Response.json({ ok: true, imported, retriedEvents, skipped: settings?.state !== "active" });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Facebook 補漏失敗" }, { status: 500 });
+    return apiError("run scheduled Facebook import", error, "Facebook 補漏失敗，請稍後再試。");
   }
 }

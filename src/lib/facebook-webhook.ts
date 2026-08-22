@@ -1,6 +1,13 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 export type FacebookWebhookChange = { pageId: string; postId: string; kind: "upsert" | "remove"; receivedAt: number };
+export const MAX_FACEBOOK_WEBHOOK_BYTES = 1024 * 1024;
+
+export function isFacebookWebhookTooLarge(contentLength: string | null) {
+  if (contentLength === null) return false;
+  const bytes = Number(contentLength);
+  return !Number.isSafeInteger(bytes) || bytes < 0 || bytes > MAX_FACEBOOK_WEBHOOK_BYTES;
+}
 
 export function verifyFacebookSignature(rawBody: string, signature: string | null, appSecret: string) {
   if (!signature?.startsWith("sha256=") || !appSecret) return false;
