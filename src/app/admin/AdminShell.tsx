@@ -18,6 +18,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [author, setAuthor] = useState("作者後台");
+  const [signingOut, setSigningOut] = useState(false);
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
@@ -28,21 +29,23 @@ export default function AdminShell({ children }: { children: ReactNode }) {
   }, []);
 
   async function signOut() {
+    if (signingOut) return;
+    setSigningOut(true);
     const supabase = getSupabaseBrowserClient();
     if (supabase) await supabase.auth.signOut();
-    router.push("/admin");
+    router.replace("/");
     router.refresh();
   }
 
   const sidebar = <div className="flex h-full flex-col">
     <div className="border-b border-white/10 px-6 py-7"><p className="text-xs tracking-[0.22em] text-[#efb08d]">AUTHOR SPACE</p><p className="mt-2 text-lg font-semibold tracking-[0.08em] text-white">天天寶寶</p></div>
     <nav className="flex-1 space-y-2 px-3 py-6" aria-label="作者後台導覽">{navigation.map((item) => { const active = item.href === "/admin" ? pathname === item.href : pathname.startsWith(item.href); return <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={`flex items-center gap-3 rounded-2xl px-4 py-3 text-sm transition ${active ? "bg-white text-[#31413d] shadow-sm" : "text-white/70 hover:bg-white/10 hover:text-white"}`}><span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#c1664b]/15 text-base text-[#efb08d]">{item.symbol}</span>{item.label}</Link>; })}</nav>
-    <div className="space-y-3 border-t border-white/10 p-4"><p className="truncate px-2 text-xs text-white/45" title={author}>{author}</p><Link href="/" className="block rounded-xl px-3 py-2 text-sm text-white/70 hover:bg-white/10 hover:text-white">← 返回公開網站</Link><button type="button" onClick={signOut} className="w-full rounded-xl px-3 py-2 text-left text-sm text-white/70 hover:bg-white/10 hover:text-white">登出</button></div>
+    <div className="space-y-3 border-t border-white/10 p-4"><p className="truncate px-2 text-xs text-white/45" title={author}>{author}</p><Link href="/" className="block rounded-xl px-3 py-2 text-sm text-white/70 hover:bg-white/10 hover:text-white">← 返回公開網站</Link><button type="button" onClick={signOut} disabled={signingOut} className="w-full rounded-xl border border-[#efb08d]/50 px-3 py-2 text-left text-sm text-[#efb08d] hover:bg-white/10 disabled:cursor-wait disabled:opacity-60">{signingOut ? "登出中…" : "登出管理者帳號"}</button></div>
   </div>;
 
   return <div className="min-h-screen bg-[#f5f7f3] lg:grid lg:grid-cols-[260px_1fr]">
     <aside className="sticky top-0 hidden h-screen bg-[#31413d] lg:block">{sidebar}</aside>
-    <div className="min-w-0"><header className="sticky top-0 z-30 flex items-center justify-between border-b border-[#dce5de] bg-[#f5f7f3]/95 px-5 py-4 backdrop-blur lg:hidden"><Link href="/admin" className="font-semibold tracking-[0.08em] text-[#31413d]">天天寶寶・作者後台</Link><button type="button" onClick={() => setOpen(true)} aria-expanded={open} aria-controls="admin-mobile-navigation" className="rounded-full border border-[#cbd9d1] px-4 py-2 text-sm text-[#557166]">選單</button></header>{children}</div>
+    <div className="min-w-0"><header className="sticky top-0 z-30 flex items-center justify-between border-b border-[#dce5de] bg-[#f5f7f3]/95 px-5 py-4 backdrop-blur lg:hidden"><Link href="/admin" className="font-semibold tracking-[0.08em] text-[#31413d]">天天寶寶・作者後台</Link><div className="flex items-center gap-2"><button type="button" onClick={signOut} disabled={signingOut} className="rounded-full border border-[#c1664b] px-3 py-2 text-sm text-[#c1664b] disabled:opacity-60">{signingOut ? "登出中…" : "登出"}</button><button type="button" onClick={() => setOpen(true)} aria-expanded={open} aria-controls="admin-mobile-navigation" className="rounded-full border border-[#cbd9d1] px-4 py-2 text-sm text-[#557166]">選單</button></div></header>{children}</div>
     {open && <div className="fixed inset-0 z-50 lg:hidden"><button type="button" aria-label="關閉選單" onClick={() => setOpen(false)} className="absolute inset-0 bg-black/35" /><aside id="admin-mobile-navigation" className="absolute right-0 top-0 h-full w-[min(85vw,320px)] bg-[#31413d] shadow-2xl"><button type="button" onClick={() => setOpen(false)} className="absolute right-4 top-5 z-10 rounded-full px-3 py-2 text-sm text-white/70">關閉</button>{sidebar}</aside></div>}
   </div>;
 }
