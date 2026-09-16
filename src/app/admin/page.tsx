@@ -11,17 +11,13 @@ export default function AdminPage() {
   const [status, setStatus] = useState(() => process.env.NEXT_PUBLIC_SUPABASE_URL ? "正在確認登入狀態…" : "尚未設定 Supabase，後台目前無法使用");
 
   useEffect(() => {
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) return;
-    supabase.auth.getUser().then(async ({ data, error }) => {
-      if (data.user && await isCurrentUserAuthor()) {
-        setStatus(`已登入：${data.user.email ?? "作者"}`);
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return;
+    isCurrentUserAuthor().then((isAuthor) => {
+      if (isAuthor) {
+        setStatus("已登入：作者");
         setMode("editor");
-      } else if (data.user) {
-        setStatus("這個 Google 帳號不在作者名單中。");
-        await supabase.auth.signOut();
       } else {
-        setStatus(error ? "登入狀態確認失敗，請再試一次" : "尚未登入");
+        setStatus("尚未登入或此帳號沒有作者權限");
       }
     });
   }, []);

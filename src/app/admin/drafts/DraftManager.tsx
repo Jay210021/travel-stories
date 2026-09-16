@@ -42,16 +42,20 @@ export default function DraftManager({ initialDrafts }: { initialDrafts: Draft[]
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
-    supabase.from("stories").select("id,source,source_id,status,title,body,published_at,deleted_at").order("updated_at", { ascending: false }).then(({ data, error }) => {
-      if (error) return setMessage(`載入失敗：${error.message}`);
-      const rows = (data ?? []) as StoryRow[];
-      setDrafts((local) => rows.map((row) => {
-        const fallback = local.find((draft) => draft.draftId === row.source_id);
-        return { id: row.id, draftId: row.source_id, source: row.source, status: row.status, title: row.title, body: row.body, publishedAt: row.published_at ?? fallback?.publishedAt ?? null, deletedAt: row.deleted_at, media: fallback?.media ?? [], review: fallback?.review ?? emptyReview };
-      }));
-      setActiveId((current) => rows.some((row) => row.source_id === current) ? current : rows[0]?.source_id ?? "");
-      setMessage("");
-    });
+    supabase.from("stories").select("id,source,source_id,status,title,body,published_at,deleted_at")
+      .order("published_at", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .then(({ data, error }) => {
+        if (error) return setMessage(`載入失敗：${error.message}`);
+        const rows = (data ?? []) as StoryRow[];
+        setDrafts((local) => rows.map((row) => {
+          const fallback = local.find((draft) => draft.draftId === row.source_id);
+          return { id: row.id, draftId: row.source_id, source: row.source, status: row.status, title: row.title, body: row.body, publishedAt: row.published_at ?? fallback?.publishedAt ?? null, deletedAt: row.deleted_at, media: fallback?.media ?? [], review: fallback?.review ?? emptyReview };
+        }));
+        setActiveId((current) => rows.some((row) => row.source_id === current) ? current : rows[0]?.source_id ?? "");
+        setMessage("");
+      });
   }, []);
 
   const list = useMemo(() => drafts.filter((draft) => (status === "全部" || draft.status === status) && `${draft.title} ${draft.body}`.toLowerCase().includes(query.toLowerCase())), [drafts, status, query]);

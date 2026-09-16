@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 const navigation = [
@@ -17,16 +17,8 @@ export default function AdminShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [author, setAuthor] = useState("作者後台");
+  const author = "作者後台";
   const [signingOut, setSigningOut] = useState(false);
-
-  useEffect(() => {
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) return;
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user?.email) setAuthor(data.user.email);
-    });
-  }, []);
 
   async function signOut() {
     if (signingOut) return;

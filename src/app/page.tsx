@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { matchesStorySearch } from "@/lib/story-search";
 import PublicNavbar from "./PublicNavbar";
 
-type Story = { slug: string; title: string; body: string; classification_labels: string[] };
+type Story = { slug: string; title: string; excerpt: string; classification_labels: string[]; classification_search_labels: string[] };
 
 export default function Home() {
   const [stories, setStories] = useState<Story[]>([]);
@@ -25,26 +26,26 @@ export default function Home() {
     const resetHome = () => setQuery("");
     readQuery();
     window.addEventListener("popstate", readQuery);
-    window.addEventListener("title-search", receiveNavbarSearch);
+    window.addEventListener("story-search", receiveNavbarSearch);
     window.addEventListener("home-reset", resetHome);
     return () => {
       window.removeEventListener("popstate", readQuery);
-      window.removeEventListener("title-search", receiveNavbarSearch);
+      window.removeEventListener("story-search", receiveNavbarSearch);
       window.removeEventListener("home-reset", resetHome);
     };
   }, []);
 
   const visible = useMemo(
-    () => stories.filter((story) => story.title.toLowerCase().includes(query.trim().toLowerCase())),
+    () => stories.filter((story) => matchesStorySearch(story, query)),
     [stories, query],
   );
 
   return (
-    <main className="min-h-screen bg-[#fdfcf8] text-[#31413d]">
+    <main className="min-h-screen bg-[#f3f0e8] text-[#31413d]">
       <PublicNavbar />
       <header className="mx-auto max-w-6xl px-6 pb-16 pt-16">
         <p className="text-sm tracking-[0.25em] text-[#c1664b]">OUR TRAVEL ARCHIVE</p>
-        <h1 className="mt-4 max-w-2xl text-5xl font-semibold leading-tight sm:text-7xl">把一起走過的路，寫成故事。</h1>
+        <h1 className="mt-4 whitespace-nowrap text-[clamp(1.25rem,6vw,4.5rem)] font-semibold leading-tight">把一起走過的路，寫成故事。</h1>
         <p className="mt-6 max-w-xl text-lg leading-8 text-[#687a73]">記錄我們的旅行、生活，以及那些值得回頭看的日子。</p>
         <a
           href="https://www.facebook.com/profile.php?id=61562870552784"
@@ -74,7 +75,7 @@ export default function Home() {
                   <h2 className="mt-3 text-2xl font-semibold">
                     <Link href={`/stories/${story.slug}`} className="hover:text-[#c1664b]">{story.title}</Link>
                   </h2>
-                  <p className="mt-3 line-clamp-4 whitespace-pre-line text-sm leading-7 text-[#718078]">{story.body}</p>
+                  <p className="mt-3 line-clamp-4 whitespace-pre-line text-sm leading-7 text-[#718078]">{story.excerpt}</p>
                 </article>
               ))}
             </div>

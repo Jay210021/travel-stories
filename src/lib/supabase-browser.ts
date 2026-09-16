@@ -8,10 +8,12 @@ export function getSupabaseBrowserClient() {
 }
 
 export async function isCurrentUserAuthor() {
-  const supabase = getSupabaseBrowserClient();
-  if (!supabase) return false;
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return false;
-  const { data: isAuthor } = await supabase.rpc("is_author");
-  return isAuthor === true;
+  try {
+    const response = await fetch("/api/author-status", { cache: "no-store" });
+    if (!response.ok) return false;
+    const data: { isAuthor?: boolean } = await response.json();
+    return data.isAuthor === true;
+  } catch {
+    return false;
+  }
 }

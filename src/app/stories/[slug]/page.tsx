@@ -3,7 +3,6 @@ import Breadcrumbs, { type BreadcrumbItem } from "@/app/Breadcrumbs";
 import PublicNavbar from "@/app/PublicNavbar";
 import { getStoryBySlug } from "@/lib/public-reading";
 import { storyDestinationCrumbs } from "@/lib/destination";
-import ShareButton from "./ShareButton";
 import ArticleEditor from "./ArticleEditor";
 import ViewTracker from "./ViewTracker";
 
@@ -37,19 +36,6 @@ export default async function StoryPage({
           <h1 className="mt-4 text-4xl font-semibold leading-tight text-[#31413d] sm:text-6xl">
             {story.title}
           </h1>
-          <div className="mt-6 flex gap-4 text-sm text-[#718078]">
-            <a
-              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                `${story.country ?? ""} ${story.city ?? ""}`,
-              )}`}
-              target="_blank"
-              rel="noreferrer"
-              className="text-[#c1664b]"
-            >
-              開啟地圖
-            </a>
-            <ShareButton />
-          </div>
           <ArticleEditor
             storyId={story.id}
             sourceId={story.source_id ?? ""}

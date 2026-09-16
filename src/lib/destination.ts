@@ -26,6 +26,18 @@ export function resolveDestination(story: DestinationStory): ResolvedDestination
   return country ? resolved(country) : null;
 }
 
+export function matchesStoryTaxon(
+  story: DestinationStory,
+  taxon: { slug: string; kind: "destination" | "topic" },
+  assignedTaxonIds: ReadonlySet<string>,
+  descendantTaxonIds: ReadonlySet<string>,
+) {
+  if (assignedTaxonIds.size) return [...assignedTaxonIds].some((id) => descendantTaxonIds.has(id));
+  if (taxon.kind !== "destination") return false;
+  const destination = resolveDestination(story);
+  return destination?.region.slug === taxon.slug || destination?.country?.slug === taxon.slug;
+}
+
 export function findRegion(slug: string) { return regions.find((region) => region.slug === slug) ?? null; }
 export function findCountryRoute(regionSlug: string, countrySlug: string) { const region = findRegion(regionSlug); const country = countries.find((item) => item.slug === countrySlug && item.region === regionSlug); return region && country ? { region, country: resolved(country).country ?? { slug: country.slug, label: country.label, region: country.region, href: region.href } } : null; }
 export function storyDestinationCrumbs(story: DestinationStory): DestinationCrumb[] { const destination = resolveDestination(story); return destination ? [destination.region, ...(destination.country ? [destination.country] : [])] : []; }

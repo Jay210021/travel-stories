@@ -1,11 +1,13 @@
 import { createClient } from "@supabase/supabase-js";
-import { destinationNavigation, resolveDestination, type DestinationNavigation, type RegionSlug } from "@/lib/destination";
+import { destinationNavigation, matchesStoryTaxon, resolveDestination, type DestinationNavigation, type RegionSlug } from "@/lib/destination";
 import type { PublicNavbarItem } from "@/lib/navbar-types";
 import { descendantIds } from "@/lib/content-taxonomy-order";
+import { assignedClassificationLabels, type ClassificationTaxon } from "@/lib/story-classification";
 import { getSupabaseServiceClient } from "@/lib/supabase-service";
 
 type StoryRow = { id: string; source_id: string | null; slug: string | null; title: string; body: string; country: string | null; city: string | null; published_at: string | null; cover_path: string | null };
-export type PublicStoryCard = Omit<StoryRow, "slug"> & { slug: string; classification_labels: string[] };
+export type PublicStoryCard = Omit<StoryRow, "slug"> & { slug: string; classification_labels: string[]; classification_search_labels: string[] };
+export type PublicStoryIndexItem = Pick<PublicStoryCard, "slug" | "title" | "classification_labels" | "classification_search_labels"> & { excerpt: string };
 export type PublicStory = PublicStoryCard & { media: PublicMedia[] };
 export type PublicMedia = { kind: "photo" | "video"; storage_path: string; caption: string; alt_text: string; url: string };
 export type PublicVideo = PublicMedia & { story: PublicStoryCard };
@@ -15,7 +17,7 @@ export type PublicTaxon = { id: string; slug: string; label: string; kind: "dest
 type NavbarRow = { id: string; label: string; item_type: "link" | "destination"; href: string | null; destination_region: RegionSlug | null };
 type TaxonRow = { id: string; slug: string; label: string; kind: "destination" | "topic" | "system"; parent_id: string | null; show_in_nav: boolean; sort_order: number; href: string | null };
 type StoryTaxonRow = { story_id: string; taxon_id: string };
-type ClassificationTaxonRow = { id: string; label: string; parent_id: string | null };
+type StoryClassification = { display: string[]; search: string[] };
 
 const storyFields = "id,source_id,slug,title,body,country,city,published_at,cover_path";
 
@@ -33,7 +35,7 @@ function fallbackClassificationLabels(story: StoryRow) {
 }
 
 async function readStoryClassificationLabels(storyIds: string[]) {
-  const labels = new Map<string, string[]>();
+  const labels = new Map<string, StoryClassification>();
   if (!storyIds.length) return labels;
 
   const supabase = getSupabase();
@@ -44,34 +46,33 @@ async function readStoryClassificationLabels(storyIds: string[]) {
   if (assignmentError) throw assignmentError;
 
   const assignments = (assignmentData ?? []) as StoryTaxonRow[];
-  const taxonIds = [...new Set(assignments.map((item) => item.taxon_id))];
-  if (!taxonIds.length) return labels;
+  if (!assignments.length) return labels;
 
   const { data: taxonData, error: taxonError } = await supabase
     .from("content_taxa")
-    .select("id,label,parent_id")
-    .in("id", taxonIds);
+    .select("id,label,parent_id");
   if (taxonError) throw taxonError;
 
-  const taxa = (taxonData ?? []) as ClassificationTaxonRow[];
+  const taxa = (taxonData ?? []) as ClassificationTaxon[];
   const taxonById = new Map(taxa.map((taxon) => [taxon.id, taxon]));
   for (const storyId of storyIds) {
     const assignedIds = assignments.filter((item) => item.story_id === storyId).map((item) => item.taxon_id);
-    const parentIds = new Set(assignedIds.map((id) => taxonById.get(id)?.parent_id).filter((id): id is string => Boolean(id)));
-    const storyLabels = assignedIds
-      .filter((id) => !parentIds.has(id))
-      .map((id) => taxonById.get(id)?.label)
-      .filter((label): label is string => Boolean(label));
-    if (storyLabels.length) labels.set(storyId, [...new Set(storyLabels)]);
+    const storyLabels = assignedClassificationLabels(assignedIds, taxonById);
+    if (storyLabels.display.length) labels.set(storyId, storyLabels);
   }
   return labels;
 }
 
-function normalizeStory(story: StoryRow, classificationLabels?: string[]): PublicStoryCard {
+function normalizeStory(story: StoryRow, classification?: StoryClassification): PublicStoryCard {
+  const fallbackLabels = fallbackClassificationLabels(story);
+  const destination = classification?.display.length ? null : resolveDestination(story);
   return {
     ...story,
     slug: story.slug || `story-${story.id.replaceAll("-", "")}`,
-    classification_labels: classificationLabels?.length ? classificationLabels : fallbackClassificationLabels(story),
+    classification_labels: classification?.display.length ? classification.display : fallbackLabels,
+    classification_search_labels: classification?.display.length
+      ? classification.search
+      : [...new Set([...fallbackLabels, ...(destination ? [destination.region.label] : [])])],
   };
 }
 
@@ -81,13 +82,31 @@ async function normalizeStories(stories: StoryRow[]) {
 }
 
 async function readPublishedStoryCards(): Promise<PublicStoryCard[]> {
-  const { data, error } = await getSupabase().from("stories").select(storyFields).eq("status", "published").order("published_at", { ascending: false });
-  if (error) throw error;
-  return normalizeStories((data ?? []) as StoryRow[]);
+  const supabase = getSupabase();
+  const pageSize = 500;
+  const stories: PublicStoryCard[] = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase.from("stories").select(storyFields)
+      .eq("status", "published")
+      .order("published_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(offset, offset + pageSize - 1);
+    if (error) throw error;
+    const page = (data ?? []) as StoryRow[];
+    stories.push(...await normalizeStories(page));
+    if (page.length < pageSize) break;
+  }
+  return stories;
 }
 
-export async function listStoryIndex() {
-  return readPublishedStoryCards();
+export async function listStoryIndex(): Promise<PublicStoryIndexItem[]> {
+  return (await readPublishedStoryCards()).map((story) => ({
+    slug: story.slug,
+    title: story.title,
+    excerpt: Array.from(story.body).slice(0, 240).join(""),
+    classification_labels: story.classification_labels,
+    classification_search_labels: story.classification_search_labels,
+  }));
 }
 
 export async function getStoryBySlug(slug: string): Promise<PublicStory | null> {
@@ -133,13 +152,26 @@ export async function getPublicTaxon(slug: string): Promise<PublicTaxon | null> 
 }
 
 export async function listStoriesForTaxon(taxon: PublicTaxon) {
-  const { data: allTaxa } = await getSupabase().from("content_taxa").select("id,label,parent_id,aliases");
+  const supabase = getSupabase();
+  const { data: allTaxa, error: taxaError } = await supabase.from("content_taxa").select("id,parent_id");
+  if (taxaError) throw taxaError;
   const descendants = descendantIds(allTaxa ?? [], taxon.id);
-  const relatedTaxa = (allTaxa ?? []).filter((item) => descendants.has(item.id));
-  const { data: assignments } = await getSupabase().from("story_taxa").select("story_id").in("taxon_id", [...descendants]);
-  const assigned = new Set((assignments ?? []).map((item) => item.story_id));
-  const aliases = [...new Set([taxon.label, ...taxon.aliases, ...relatedTaxa.flatMap((item) => [item.label, ...(item.aliases ?? [])])])].map((alias) => alias.toLowerCase());
-  return (await readPublishedStoryCards()).filter((story) => assigned.has(story.id) || [story.country ?? "", story.title, story.body].some((value) => aliases.some((alias) => value.toLowerCase().includes(alias))));
+  const assignments = new Map<string, Set<string>>();
+  const pageSize = 500;
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase.from("story_taxa").select("story_id,taxon_id")
+      .order("story_id")
+      .order("taxon_id")
+      .range(offset, offset + pageSize - 1);
+    if (error) throw error;
+    for (const item of data ?? []) {
+      const assigned = assignments.get(item.story_id) ?? new Set<string>();
+      assigned.add(item.taxon_id);
+      assignments.set(item.story_id, assigned);
+    }
+    if ((data?.length ?? 0) < pageSize) break;
+  }
+  return (await readPublishedStoryCards()).filter((story) => matchesStoryTaxon(story, taxon, assignments.get(story.id) ?? new Set(), descendants));
 }
 
 export async function getPublicTaxonCrumbs(taxon: PublicTaxon) {
