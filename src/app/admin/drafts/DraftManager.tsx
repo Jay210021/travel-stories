@@ -58,8 +58,8 @@ export default function DraftManager({ initialDrafts }: { initialDrafts: Draft[]
       });
   }, []);
 
-  const list = useMemo(() => drafts.filter((draft) => (status === "全部" || draft.status === status) && `${draft.title} ${draft.body}`.toLowerCase().includes(query.toLowerCase())), [drafts, status, query]);
-  const active = drafts.find((draft) => draft.draftId === activeId) ?? list[0];
+  const list = useMemo(() => drafts.filter((draft) => (status === "全部" ? draft.status !== "trash" : draft.status === status) && `${draft.title} ${draft.body}`.toLowerCase().includes(query.toLowerCase())), [drafts, status, query]);
+  const active = list.find((draft) => draft.draftId === activeId) ?? list[0];
   const edit = (changes: Partial<Draft>) => active && setDrafts((items) => items.map((draft) => draft.draftId === active.draftId ? { ...draft, ...changes } : draft));
 
   async function saveStory(): Promise<OperationResult> {
@@ -177,9 +177,10 @@ export default function DraftManager({ initialDrafts }: { initialDrafts: Draft[]
         <div className="mt-8 grid gap-6 lg:grid-cols-[380px_1fr]">
           <aside className="rounded-3xl bg-white p-4">
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜尋標題或內容" className="w-full rounded-xl border px-4 py-3 text-sm" />
-            <div className="mt-3 flex gap-2"><select value={status} onChange={(event) => setStatus(event.target.value)} className="rounded-lg border px-2 py-2 text-xs"><option>全部</option><option value="draft">草稿</option><option value="published">已發布</option><option value="trash">垃圾桶</option></select><button onClick={() => setSelected(allVisibleSelected ? selected.filter((id) => !list.some((draft) => draft.draftId === id)) : [...new Set([...selected, ...list.map((draft) => draft.draftId)])])} className="rounded-lg border px-3 py-2 text-xs">{allVisibleSelected ? "取消全選" : "全選目前列表"}</button></div>
+            <div className="mt-3 flex gap-2"><select aria-label="文章狀態" value={status} onChange={(event) => { setStatus(event.target.value); setSelected([]); }} className="rounded-lg border px-2 py-2 text-xs"><option value="全部">全部（不含垃圾桶）</option><option value="draft">草稿</option><option value="published">已發布</option><option value="trash">垃圾桶</option></select><button onClick={() => setSelected(allVisibleSelected ? selected.filter((id) => !list.some((draft) => draft.draftId === id)) : [...new Set([...selected, ...list.map((draft) => draft.draftId)])])} className="rounded-lg border px-3 py-2 text-xs">{allVisibleSelected ? "取消全選" : "全選目前列表"}</button></div>
             {message && <p className="mt-3 text-xs text-[#7a8b83]">{message}</p>}
-            <div className="mt-4 space-y-2">{list.map((draft) => <div key={draft.draftId} className={`flex gap-2 rounded-xl p-2 ${active?.draftId === draft.draftId ? "bg-[#f5f7f3]" : ""}`}><input type="checkbox" checked={selected.includes(draft.draftId)} onChange={() => setSelected(selected.includes(draft.draftId) ? selected.filter((id) => id !== draft.draftId) : [...selected, draft.draftId])} /><button onClick={() => setActiveId(draft.draftId)} className="text-left text-sm"><span className="font-medium">{draft.title}</span><span className="block text-xs text-[#9aa8a0]">{statusLabel(draft)}</span></button></div>)}</div>
+            <div className="mt-4 space-y-2">{list.map((draft) => <div key={draft.draftId} className={`flex gap-2 rounded-xl p-2 ${active?.draftId === draft.draftId ? "bg-[#f5f7f3]" : ""}`}><input type="checkbox" aria-label={`選取 ${draft.title}`} checked={selected.includes(draft.draftId)} onChange={() => setSelected(selected.includes(draft.draftId) ? selected.filter((id) => id !== draft.draftId) : [...selected, draft.draftId])} /><button onClick={() => setActiveId(draft.draftId)} className="text-left text-sm"><span className="font-medium">{draft.title}</span><span className="block text-xs text-[#9aa8a0]">{statusLabel(draft)}</span></button></div>)}</div>
+            {!list.length && <p className="mt-4 text-sm text-[#7a8b83]">沒有符合條件的文章。</p>}
           </aside>
           {active && (
             <article key={active.draftId} className="rounded-3xl bg-white p-6 sm:p-8">

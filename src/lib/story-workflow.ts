@@ -8,5 +8,13 @@ export async function runStoryWorkflow(action: StoryWorkflowAction, storyIds: st
     const reason = [data.error, data.details, data.hint, data.code ? `錯誤代碼：${data.code}` : ""].filter(Boolean).join("\n");
     throw new Error(reason || "文章狀態變更失敗。");
   }
-  return data.stories as WorkflowStory[];
+  const stories: unknown = data?.stories;
+  const expectedStatus = action === "publish" ? "published" : action === "trash" ? "trash" : "draft";
+  const requestedIds = new Set(storyIds);
+  if (!storyIds.length || !Array.isArray(stories) || stories.length !== requestedIds.size
+    || !stories.every((story) => story && typeof story.id === "string" && requestedIds.has(story.id) && story.status === expectedStatus)
+    || new Set(stories.map((story) => story.id)).size !== requestedIds.size) {
+    throw new Error("未能確認所有文章的狀態已更新，請重新整理後再試。");
+  }
+  return stories as WorkflowStory[];
 }
