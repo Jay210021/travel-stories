@@ -188,3 +188,46 @@ test("imported text keeps ordinary links but removes known tracking parameters",
   }, harness.dependencies);
   assert.equal(result.story.body, "旅行連結 https://example.com/guide?place=seoul#day1");
 });
+
+test("a fuller photo list repairs an unchanged incomplete draft and uploads only missing photos", async () => {
+  const uploaded: string[] = [];
+  const sorted: string[][] = [];
+  const harness = createHarness({
+    uploadPhoto: async (_storyId, media) => { uploaded.push(media.sourceId); return { storagePath: media.sourceId }; },
+    syncPhotoOrder: async (_storyId, ids) => { sorted.push(ids); },
+  });
+  const post: FacebookPost = { pageId: "page-1", postId: "page-1_42", message: "四張照片", createdTime: "2026-10-01T00:00:00Z", updatedTime: "2026-10-01T00:00:00Z", permalinkUrl: "https://facebook.com/post", media: [{ sourceId: "1", type: "photo", url: "https://example.com/1.jpg" }] };
+  const first = await processFacebookImport(post, harness.dependencies);
+  const complete: FacebookPost = { ...post, media: ["1", "2", "3", "4"].map((sourceId) => ({ sourceId, type: "photo", url: `https://example.com/${sourceId}.jpg` })) };
+  const repaired = await processFacebookImport(complete, harness.dependencies);
+  assert.equal(first.story.id, repaired.story.id);
+  assert.deepEqual(uploaded, ["1", "2", "3", "4"]);
+  assert.deepEqual(harness.getImport()?.importedPhotoIds, ["1", "2", "3", "4"]);
+  assert.deepEqual(sorted.at(-1), ["1", "2", "3", "4"]);
+  await processFacebookImport(complete, harness.dependencies);
+  assert.equal(uploaded.length, 4, "a repeated completed import must not duplicate uploads");
+});
+
+test("a failed middle photo retries into its Facebook position and failure does not detach old photos", async (t) => {
+  t.mock.method(console, "error", () => undefined);
+  let fail = true;
+  const sorted: string[][] = [];
+  const detached: string[][] = [];
+  const harness = createHarness({
+    uploadPhoto: async (_storyId, media) => {
+      if (fail && media.sourceId === "2") throw new Error("download unavailable");
+      return { storagePath: media.sourceId };
+    },
+    syncPhotoOrder: async (_storyId, ids) => { sorted.push([...ids]); },
+    detachMissingPhotos: async (_storyId, ids) => { detached.push([...ids]); },
+  });
+  const post: FacebookPost = { pageId: "page-1", postId: "page-1_42", message: "相簿", createdTime: "2026-10-01T00:00:00Z", updatedTime: "2026-10-01T00:00:00Z", permalinkUrl: "https://facebook.com/post", media: ["1", "2", "3", "4"].map((sourceId) => ({ sourceId, type: "photo", url: `https://example.com/${sourceId}.jpg` })) };
+  assert.equal((await processFacebookImport(post, harness.dependencies)).status, "needs_attention");
+  await processFacebookImport(post, harness.dependencies, { force: true });
+  assert.equal(detached.length, 0);
+  fail = false;
+  assert.equal((await processFacebookImport(post, harness.dependencies, { force: true })).status, "succeeded");
+  assert.deepEqual(harness.getImport()?.importedPhotoIds, ["1", "2", "3", "4"]);
+  assert.deepEqual(sorted.at(-1), ["1", "2", "3", "4"]);
+  assert.equal(detached.length, 1);
+});

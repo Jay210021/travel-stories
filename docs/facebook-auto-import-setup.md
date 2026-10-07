@@ -13,6 +13,7 @@
 1. 登入 Supabase Dashboard。
 2. 開啟專案的 **SQL Editor**。
 3. 複製並執行 `supabase/migrations/015_facebook_auto_import.sql` 全部內容。
+   接著執行 `supabase/migrations/017_facebook_import_service_permissions.sql`，明確授予 `service_role` 新資料表與 identity sequence 的權限。
 4. 確認 Table Editor 出現：
    - `facebook_sync_settings`
    - `facebook_imports`
@@ -108,6 +109,16 @@ npm run build
 
 ## 常見問題
 
+### POST /api/facebook-import 回傳 500／permission denied
+
+已重現的資料庫錯誤為 HTTP 403、PostgreSQL `42501`：`service_role` 無權讀取 `facebook_imports`、`facebook_import_attempts` 與 `facebook_sync_settings`。Migration 015 只明確授予作者讀取權限；若專案沒有預設授予 service_role 權限，即使伺服器金鑰有效且能繞過 RLS，仍會失敗。
+
+在 Production Supabase SQL Editor 執行 `supabase/migrations/017_facebook_import_service_permissions.sql`，再部署包含錯誤處理修正的版本。此 migration 不更動資料、作者政策、Webhook 驗證或 Meta feed subscription。
+
+使用 `389930330864242_122203917908429018` 再建立測試草稿，確認 API 回傳 200、草稿未發布、同步狀態為 testing。Post ID 全程保留字串，避免大數字轉為 JavaScript Number 時失去精度。Graph API 預設仍為 `v24.0`，可用 `FACEBOOK_GRAPH_API_VERSION` 明確指定版本。
+
+若仍失敗，API 的 `error` 會顯示具體原因與 `errorId`；在 Vercel Logs 搜尋這個 errorId 可取得 `stage`、`operation`、`httpStatus`、`graphApiVersion`、`graphResponseBody`、Facebook message/code/subcode、Supabase error（含 details/hint）、stack 與 cause。Token 與伺服器金鑰會遮蔽；即使寫入失敗紀錄也失敗，server log 仍保留最初的錯誤。
+
 ### 顯示尚未建立資料表
 
 尚未執行 migration 015，或 SQL 執行失敗。重新查看 Supabase SQL Editor 的錯誤訊息，不要重複建立自訂的同名表。
@@ -123,6 +134,51 @@ Vercel 環境變數不完整，或設定後沒有重新部署。
 ### 圖片失敗但草稿存在
 
 這是預期的部分成功行為。草稿會標示「需人工處理」，匯入嘗試紀錄會顯示失敗原因；修正問題後可按「重新嘗試」。
+
+### 多圖、Album、Carousel 與圖片數量核對
+
+程式會要求以下 fields，不使用 `full_picture`、`picture` 或 `icon` 來匯入照片：
+
+```text
+id,message,created_time,updated_time,permalink_url,from{id},
+attachments.limit(100){
+  type,media_type,media{image{src}},target{id,url},
+  subattachments.limit(100){
+    type,media_type,media{image{src}},target{id,url},
+    subattachments.limit(100)
+  }
+}
+```
+
+`100` 是每頁請求大小，並非照片總數上限。程式沿著 attachments 與每一層 subattachments 的 `paging.next` 讀取所有頁；若看見更深的巢狀結構，會重新取得更深層的明確 fields。全部頁面取得成功後才開始寫入草稿，分頁失敗不會用部分圖片清單移除原有媒體。
+
+解析採原陣列順序深度優先展開。相簿本身的主圖不額外加入；只下載 photo/image attachment 的 `media.image.src`，不將 `target.url` 的 Facebook 網頁當成圖片。Link/share preview、video/reel/live thumbnail、profile/avatar/icon 不會成為照片。以 `target.id` 與穩定圖片網址去重；缺少 ID 時，使用圖片網址雜湊產生穩定 sourceId，避免舊版巢狀 `attachment-0` 撞名。
+
+每張照片寫入 Supabase Storage bucket `travel-photos` 的 `facebook-live/{storyId}/{sourceId}.jpg`，並各自建立一筆 `story_media`，欄位包含 `story_id`、`kind=photo`、`storage_path`、`sort_order` 與 `alt_text`。重試會補上缺圖並修正順序，手動加入的媒體保留其位置。第一張照片存入 `stories.cover_path`；其餘照片仍在 `story_media`，後台既有媒體與前台文章圖庫皆從這個表依 `sort_order` 讀取。`facebook_imports.source_snapshot.media` 保留解析快照，`imported_photo_ids` 保留成功匯入 ID，依 Facebook 順序排列。
+
+驗證步驟：
+
+1. 部署這次程式修正，選一篇含至少 4 張不同照片的粉專貼文，記下 Facebook 的張數 N 與排列順序。
+2. 用完整 `PAGE_ID_POST_ID` 在「Facebook 同步」建立測試草稿；既有未手動編輯的草稿可按「重新嘗試」補齊。已手動編輯或發布的文章仍走原本作者確認流程。
+3. 開啟「草稿與文章」的既有媒體圖庫，確認 N 張照片、順序一致、首張為封面，沒有 link/video/profile/icon 縮圖。
+4. 在 Vercel Logs 搜尋 Post ID，核對 `Facebook attachment parsing` 的 `attachmentCount`、`subattachmentCount`、`imageUrlCount`，與 `Facebook draft images` 的 `writtenImageCount`、`storedFacebookImageCount`。對純照片、全新草稿應有 `imageUrlCount = writtenImageCount = N`；attachmentCount 是最外層附件數，subattachmentCount 包含所有層的子附件。
+5. 再按一次「重新嘗試」，確認照片數沒有增加。若有下載失敗，會有具體錯誤與 needs_attention，成功的照片保留；修復後再重試。
+6. 另測一篇單張照片與含 video/link 的貼文，確認原有單圖功能與排除縮圖的行為。
+
+可在 Supabase SQL Editor 查驗已匯入照片與封面：
+
+```sql
+select i.post_id, m.id, m.storage_path, m.sort_order, s.cover_path
+from public.facebook_imports i
+join public.stories s on s.id = i.story_id
+join public.story_media m on m.story_id = s.id
+where i.post_id = 'PAGE_ID_POST_ID'
+  and m.kind = 'photo'
+  and m.storage_path like 'travel-photos/facebook-live/' || s.id::text || '/%'
+order by m.sort_order;
+```
+
+v26.0：程式仍保留既有預設 v24.0，並接受 `FACEBOOK_GRAPH_API_VERSION=v26.0`。已用 v26.0 路徑與回應 fixture 測試完整分頁、巢狀附件、去重與順序；[Meta 官方 SDK 的 API 版本](https://github.com/facebook/facebook-nodejs-business-sdk/blob/main/src/api.js) 為 v26.0，[PagePost 程式碼](https://github.com/facebook/facebook-nodejs-business-sdk/blob/main/src/objects/page-post.js) 仍提供 attachments edge。這不等同真實粉專的欄位／權限驗證：本機沒有 Page Token，Meta 的 StoryAttachment 文件頁也未能取得。若 Production 使用 v26.0，請以該版本與現有 Page Token 在 Graph API Explorer 執行上述 fields，再執行上述網站測試。無須重設 Webhook、feed subscription 或 Token。
 
 ### 影片沒有自動搬過來
 

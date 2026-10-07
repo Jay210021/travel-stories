@@ -1,3 +1,5 @@
+import { facebookImportErrorReason, logFacebookImportError } from "./facebook-import-error.ts";
+
 export type FacebookImportStatus = "pending" | "processing" | "succeeded" | "needs_attention" | "failed" | "update_pending" | "source_removed";
 export type FacebookMedia = { sourceId: string; type: "photo" | "video" | "reel" | "live" | "shared"; url?: string; altText?: string };
 export type FacebookPost = {
@@ -60,6 +62,7 @@ export type FacebookImportDependencies = {
   savePendingSnapshot(record: FacebookImportRecord, post: FacebookPost): Promise<void>;
   uploadPhoto(storyId: string, media: FacebookMedia): Promise<{ storagePath: string }>;
   detachMissingPhotos(storyId: string, retainedSourceIds: string[]): Promise<void>;
+  syncPhotoOrder?(storyId: string, orderedSourceIds: string[]): Promise<void>;
   suggestTaxon(text: string): Promise<string | null>;
   findPossibleDuplicate?(title: string, body: string): Promise<string | null>;
   recordAttempt(attempt: FacebookImportAttempt): Promise<void>;
@@ -84,15 +87,15 @@ function withoutTrackingParameters(message: string) {
   });
 }
 
-function safeFailureReason(error: unknown) {
-  return (error instanceof Error ? error.message : "未知錯誤").replace(/(access_token|token|secret)=[^\s&]+/gi, "$1=[redacted]").slice(0, 300);
-}
+function safeFailureReason(error: unknown) { return facebookImportErrorReason(error).slice(0, 300); }
 
 export async function processFacebookImport(post: FacebookPost, dependencies: FacebookImportDependencies, options: { force?: boolean; overrideEditorial?: boolean } = {}): Promise<FacebookImportResult> {
   const startedAt = dependencies.now().toISOString();
   const message = withoutTrackingParameters(post.message);
   const existing = await dependencies.findImport(post.pageId, post.postId);
-  if (existing && existing.sourceUpdatedAt === post.updatedTime && !post.removed && !options.force && (existing.status === "succeeded" || existing.status === "needs_attention" || existing.status === "update_pending")) {
+  const mediaIdentity = (media: FacebookMedia[]) => JSON.stringify(media.map((item) => [item.type, item.sourceId]));
+  const sameMedia = existing && mediaIdentity(existing.sourceSnapshot?.media || []) === mediaIdentity(post.media);
+  if (existing && sameMedia && existing.sourceUpdatedAt === post.updatedTime && !post.removed && !options.force && (existing.status === "succeeded" || existing.status === "needs_attention" || existing.status === "update_pending")) {
     const unchanged = { ...existing, attemptCount: existing.attemptCount + 1 };
     await dependencies.saveImport(unchanged);
     await dependencies.recordAttempt({
@@ -140,6 +143,7 @@ export async function processFacebookImport(post: FacebookPost, dependencies: Fa
     const photoIds = post.media.filter((item) => item.type === "photo").map((item) => item.sourceId);
     const importedPhotoIds = existing.importedPhotoIds.filter((id) => photoIds.includes(id));
     const attention: string[] = [];
+    let photoFailed = false;
     for (const media of post.media) {
       if (media.type !== "photo") {
         attention.push(media.type === "video" ? "Facebook 影片需人工處理" : "Facebook 不支援的媒體需人工處理");
@@ -148,11 +152,15 @@ export async function processFacebookImport(post: FacebookPost, dependencies: Fa
           await dependencies.uploadPhoto(story.id, media);
           importedPhotoIds.push(media.sourceId);
         } catch (error) {
+          photoFailed = true;
+          logFacebookImportError("upload_photo", error, { pageId: post.pageId, postId: post.postId, sourceMediaId: media.sourceId });
           attention.push(`圖片 ${media.sourceId} 匯入失敗：${safeFailureReason(error)}`);
         }
       }
     }
-    await dependencies.detachMissingPhotos(story.id, photoIds);
+    // A failed replacement must not remove an older, still usable photo.
+    if (!photoFailed) await dependencies.detachMissingPhotos(story.id, photoIds);
+    await dependencies.syncPhotoOrder?.(story.id, photoIds);
     const status: FacebookImportStatus = attention.length ? "needs_attention" : "succeeded";
     const attentionReason = [...new Set(attention)].join("；") || null;
     const updated: FacebookImportRecord = {
@@ -160,7 +168,7 @@ export async function processFacebookImport(post: FacebookPost, dependencies: Fa
       sourceUpdatedAt: post.updatedTime, sourceSnapshot: post,
       attemptCount: existing.attemptCount + 1,
       suggestedTaxonId: await dependencies.suggestTaxon(message),
-      attentionReason, importedPhotoIds,
+      attentionReason, importedPhotoIds: photoIds.filter((id) => importedPhotoIds.includes(id)),
     };
     await dependencies.saveImport(updated);
     await dependencies.recordAttempt({
@@ -192,10 +200,12 @@ export async function processFacebookImport(post: FacebookPost, dependencies: Fa
       await dependencies.uploadPhoto(story.id, media);
       importedPhotoIds.push(media.sourceId);
     } catch (error) {
+      logFacebookImportError("upload_photo", error, { pageId: post.pageId, postId: post.postId, sourceMediaId: media.sourceId });
       attention.push(`圖片 ${media.sourceId} 匯入失敗：${safeFailureReason(error)}`);
     }
   }
   const status: FacebookImportStatus = attention.length ? "needs_attention" : "succeeded";
+  await dependencies.syncPhotoOrder?.(story.id, post.media.filter((item) => item.type === "photo").map((item) => item.sourceId));
   const attentionReason = [...new Set(attention)].join("；") || null;
   const record: FacebookImportRecord = {
     pageId: post.pageId,

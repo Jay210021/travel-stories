@@ -3,6 +3,7 @@ import { apiError } from "@/lib/api-error";
 import { getFacebookPage } from "@/lib/facebook-graph";
 import { applyLatestFacebookImport, importFacebookPostById, reconcileFacebookImports, retryFacebookImport } from "@/lib/facebook-import-runner";
 import { getSupabaseServiceClient } from "@/lib/supabase-service";
+import { facebookImportErrorReason, facebookSupabaseOperation, logFacebookImportError } from "@/lib/facebook-import-error";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -29,14 +30,14 @@ export async function POST(request: Request) {
     if (body?.action === "test" && body.postId) {
       const page = await getFacebookPage();
       const result = await importFacebookPostById(body.postId);
-      await getSupabaseServiceClient().from("facebook_sync_settings").update({ page_id: page.id, state: "testing", last_error: null, updated_at: new Date().toISOString() }).eq("singleton", true);
+      await facebookSupabaseOperation("facebook_sync_settings.update", getSupabaseServiceClient().from("facebook_sync_settings").update({ page_id: page.id, state: "testing", last_error: null, updated_at: new Date().toISOString() }).eq("singleton", true));
       return Response.json({ ok: true, page, result });
     }
     if (body?.action === "activate") {
       const page = await getFacebookPage();
-      const { data: settings } = await getSupabaseServiceClient().from("facebook_sync_settings").select("state").eq("singleton", true).single();
+      const { data: settings } = await facebookSupabaseOperation("facebook_sync_settings.select", getSupabaseServiceClient().from("facebook_sync_settings").select("state").eq("singleton", true).single());
       if (settings?.state !== "testing") return Response.json({ error: "請先成功建立並檢查測試草稿，再啟用自動匯入。" }, { status: 400 });
-      const { error } = await getSupabaseServiceClient().from("facebook_sync_settings").update({ page_id: page.id, state: "active", activated_at: new Date().toISOString(), last_error: null, updated_at: new Date().toISOString() }).eq("singleton", true);
+      const { error } = await facebookSupabaseOperation("facebook_sync_settings.update", getSupabaseServiceClient().from("facebook_sync_settings").update({ page_id: page.id, state: "active", activated_at: new Date().toISOString(), last_error: null, updated_at: new Date().toISOString() }).eq("singleton", true));
       if (error) throw error;
       return Response.json({ ok: true, page });
     }
@@ -44,12 +45,14 @@ export async function POST(request: Request) {
     if (body?.action === "retry" && body.postId) return Response.json({ ok: true, result: await retryFacebookImport(body.postId) });
     if (body?.action === "apply_latest" && body.postId) return Response.json({ ok: true, result: await applyLatestFacebookImport(body.postId) });
     if (body?.action === "link_existing" && body.importId && body.storyId) {
-      const { error } = await author.supabase.rpc("link_facebook_import_to_story", { p_import_id: body.importId, p_story_id: body.storyId });
+      const { error } = await facebookSupabaseOperation("link_facebook_import_to_story.rpc", author.supabase.rpc("link_facebook_import_to_story", { p_import_id: body.importId, p_story_id: body.storyId }));
       if (error) throw error;
       return Response.json({ ok: true });
     }
     return Response.json({ error: "不支援的 Facebook 匯入操作" }, { status: 400 });
   } catch (error) {
-    return apiError("run Facebook import action", error, "Facebook 匯入操作失敗，請稍後再試。");
+    const errorId = crypto.randomUUID();
+    logFacebookImportError("run Facebook import action", error, { errorId, action: body?.action, postId: body?.postId });
+    return Response.json({ error: facebookImportErrorReason(error), errorId }, { status: 500 });
   }
 }

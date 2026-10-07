@@ -44,3 +44,6 @@ next-env.d.ts
 /docs/facebook-drafts.json
 /docs/facebook-import-preview.json
 /facebook-export/
+
+# Local article reports and data repair scripts
+/reports/
