@@ -231,3 +231,46 @@ test("a failed middle photo retries into its Facebook position and failure does 
   assert.deepEqual(sorted.at(-1), ["1", "2", "3", "4"]);
   assert.equal(detached.length, 1);
 });
+
+test("only an explicit manual import restarts an edited trashed story and downloads every photo again", async () => {
+  const uploaded: string[] = [];
+  const harness = createHarness({
+    uploadPhoto: async (_id, media) => { uploaded.push(media.sourceId); return { storagePath: media.sourceId }; },
+  });
+  const post: FacebookPost = { pageId: "page-1", postId: "page-1_42", message: "FB 原文", createdTime: "2026-10-01T00:00:00Z", updatedTime: "2026-10-01T00:00:00Z", permalinkUrl: "https://facebook.com/post", media: ["1", "2"].map((sourceId) => ({ sourceId, type: "photo", url: `https://example.com/${sourceId}.jpg` })) };
+  const first = await processFacebookImport(post, harness.dependencies);
+  Object.assign(first.story, { status: "trash", title: "舊的作者標題", editorialUpdatedAt: "2026-10-02T00:00:00Z" });
+  await processFacebookImport(post, harness.dependencies);
+  assert.equal(harness.getStory()?.status, "trash");
+  const automatic = await processFacebookImport(post, harness.dependencies, { force: true });
+  assert.equal(automatic.story.status, "trash");
+  assert.equal(automatic.story.title, "舊的作者標題");
+  assert.deepEqual(uploaded, ["1", "2"]);
+
+  const restarted = await processFacebookImport(post, harness.dependencies, { restartTrashed: true });
+  assert.equal(restarted.story.id, first.story.id);
+  assert.equal(restarted.story.status, "draft");
+  assert.equal(restarted.story.title, "FB 原文");
+  assert.equal(restarted.story.titleConfirmed, false);
+  assert.equal(restarted.story.editorialUpdatedAt, null);
+  assert.deepEqual(uploaded, ["1", "2", "1", "2"]);
+  assert.deepEqual(harness.getImport()?.importedPhotoIds, ["1", "2"]);
+});
+
+test("manual import preserves edited drafts and published stories and rejects restarting linked trash", async () => {
+  for (const status of ["draft", "published", "trash"] as const) {
+    const harness = createHarness();
+    const post: FacebookPost = { pageId: "page-1", postId: "page-1_42", message: "FB 原文", createdTime: "2026-10-01T00:00:00Z", updatedTime: "2026-10-01T00:00:00Z", permalinkUrl: "https://facebook.com/post", media: [] };
+    const first = await processFacebookImport(post, harness.dependencies);
+    Object.assign(first.story, { status, title: "作者標題", editorialUpdatedAt: "2026-10-02T00:00:00Z" });
+    if (status === "trash") {
+      first.story.sourceId = "legacy-story";
+      await assert.rejects(processFacebookImport(post, harness.dependencies, { force: true, restartTrashed: true }), /已連結到其他文章/);
+    } else {
+      const result = await processFacebookImport(post, harness.dependencies, { force: true, restartTrashed: true });
+      assert.equal(result.status, "update_pending");
+      assert.equal(result.story.status, status);
+      assert.equal(result.story.title, "作者標題");
+    }
+  }
+});

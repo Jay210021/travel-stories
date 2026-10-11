@@ -40,8 +40,16 @@ export default function FacebookImportDashboard() {
       const response = await fetch("/api/facebook-import", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: actionName, postId: targetPostId, ...extra }) });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "操作失敗");
-      setMessage(actionName === "test" ? "測試草稿已建立，請先檢查內容再啟用。" : actionName === "activate" ? "Facebook 自動匯入已啟用。" : actionName === "check" ? `檢查完成，共讀取 ${result.imported ?? 0} 篇貼文。` : actionName === "apply_latest" ? "已取消公開並套用 Facebook 最新內容，請重新確認標題與分類後再發布。" : actionName === "link_existing" ? "已連結到既有文章，原本的重複草稿已移至垃圾桶。" : "重新嘗試完成。");
+      const importMessage = result.result?.status === "update_pending"
+        ? "文章已有編輯或已發布，最新內容等待確認，請在最近貼文中選擇「套用最新內容」。"
+        : result.result?.status === "needs_attention"
+          ? `匯入完成，但仍需人工處理：${result.result.attentionReason || "請查看匯入紀錄"}`
+          : data?.settings.state === "active"
+            ? "貼文已匯入為草稿，請檢查照片與內容。自動匯入持續運作。"
+            : "測試草稿已建立，請先檢查內容再啟用。";
+      const successMessage = actionName === "test" ? importMessage : actionName === "activate" ? "Facebook 自動匯入已啟用。" : actionName === "check" ? `檢查完成，共讀取 ${result.imported ?? 0} 篇貼文。` : actionName === "apply_latest" ? "已取消公開並套用 Facebook 最新內容，請重新確認標題與分類後再發布。" : actionName === "link_existing" ? "已連結到既有文章，原本的重複草稿已移至垃圾桶。" : "重新嘗試完成。";
       await load();
+      setMessage(successMessage);
     } catch (error) { setMessage(error instanceof Error ? error.message : "操作失敗"); }
     finally { setBusy(false); }
   }
@@ -71,7 +79,7 @@ export default function FacebookImportDashboard() {
           {data?.settings.last_error && <p className="mt-5 rounded-2xl bg-[#fff1ee] p-4 text-sm text-[#9a4d42]">{data.settings.last_error}</p>}
           <div className="mt-6 flex flex-wrap gap-3"><button disabled={busy || data?.settings.state !== "testing"} onClick={() => action("activate")} className="rounded-full bg-[#c1664b] px-5 py-2 text-sm text-white disabled:opacity-40">啟用自動匯入</button><button disabled={busy || data?.settings.state !== "active"} onClick={() => action("check")} className="rounded-full border border-[#557166] px-5 py-2 text-sm text-[#557166] disabled:opacity-40">立即檢查新貼文</button></div>
         </section>
-        <section className="rounded-3xl bg-white p-6 shadow-sm"><h2 className="font-semibold text-[#31413d]">連線測試</h2><p className="mt-2 text-sm leading-6 text-[#718078]">建立 Meta App 並完成環境變數後，貼上指定測試貼文的 Facebook Post ID。測試只建立草稿。</p><input value={postId} onChange={(event) => setPostId(event.target.value)} placeholder="例如：PAGE_ID_POST_ID" className="mt-5 w-full rounded-xl border border-[#d3dfd8] px-4 py-3 text-sm"/><button disabled={busy || !postId.trim()} onClick={() => action("test", postId.trim())} className="mt-3 rounded-full border border-[#c1664b] px-5 py-2 text-sm text-[#c1664b] disabled:opacity-40">建立測試草稿</button></section>
+        <section className="rounded-3xl bg-white p-6 shadow-sm"><h2 className="font-semibold text-[#31413d]">{data?.settings.state === "active" ? "指定貼文匯入" : "連線測試／指定貼文匯入"}</h2><p className="mt-2 text-sm leading-6 text-[#718078]">貼上 Facebook Post ID，可將已發布的 FB 貼文匯入網站草稿。已啟用的自動匯入會持續運作。</p><p className="mt-2 text-sm leading-6 text-[#718078]">若要重新匯入，先將原文章移至垃圾桶，再輸入相同 Post ID。文章會回到草稿，標題與內文會改用 FB 最新內容，照片會重新下載。</p><input aria-label="Facebook Post ID" value={postId} onChange={(event) => setPostId(event.target.value)} placeholder="例如：PAGE_ID_POST_ID" className="mt-5 w-full rounded-xl border border-[#d3dfd8] px-4 py-3 text-sm"/><button disabled={busy || !postId.trim()} onClick={() => action("test", postId.trim())} className="mt-3 rounded-full border border-[#c1664b] px-5 py-2 text-sm text-[#c1664b] disabled:opacity-40">{data?.settings.state === "active" ? "匯入貼文為草稿" : "建立測試草稿"}</button></section>
       </div>
       <section className="mt-8"><h2 className="text-xl font-semibold text-[#31413d]">目前匯入狀態</h2><div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">{["pending","succeeded","needs_attention","failed","update_pending","source_removed"].map((status) => <div key={status} className="rounded-2xl bg-white p-4"><p className="text-xs text-[#819087]">{importLabel[status]}</p><strong className="mt-2 block text-2xl text-[#31413d]">{counts[status] || 0}</strong></div>)}</div></section>
       <section className="mt-8 rounded-3xl bg-white p-6"><h2 className="font-semibold text-[#31413d]">最近貼文</h2><div className="mt-5 space-y-3">{(data?.imports || []).map((item) => <article key={item.id} className="flex flex-col justify-between gap-3 border-b border-[#edf0ed] pb-4 sm:flex-row sm:items-center"><div><p className="text-sm font-medium text-[#42554d]">{item.post_id}</p><p className="mt-1 text-xs text-[#8a9991]">{importLabel[item.status] || item.status} · 嘗試 {item.attempt_count} 次 · {formatDate(item.updated_at)}</p>{item.attention_reason && <p className="mt-2 text-sm text-[#9a4d42]">{item.attention_reason}</p>}</div><ImportActions item={item} stories={data?.stories || []} busy={busy} onAction={action}/></article>)}{!data?.imports.length && <p className="text-sm text-[#8a9991]">尚無自動匯入貼文。</p>}</div></section>

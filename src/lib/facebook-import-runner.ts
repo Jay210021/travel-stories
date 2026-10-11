@@ -44,6 +44,9 @@ function dependencies(): FacebookImportDependencies {
       const { data, error } = await facebookSupabaseOperation("stories.update", supabase.from("stories").update({
         title: updates.title, body: updates.body, published_at: updates.publishedAt,
         title_confirmed: updates.titleConfirmed, updated_at: new Date().toISOString(),
+        ...(updates.status !== undefined ? { status: updates.status } : {}),
+        ...(updates.deletedAt !== undefined ? { deleted_at: updates.deletedAt } : {}),
+        ...(updates.editorialUpdatedAt !== undefined ? { editorial_updated_at: updates.editorialUpdatedAt } : {}),
       }).eq("id", id).select("id,source_id,status,title,body,published_at,title_confirmed,editorial_updated_at").single());
       if (error) throw error;
       return { id: data.id, sourceId: data.source_id, status: data.status, title: data.title, body: data.body, publishedAt: data.published_at, titleConfirmed: data.title_confirmed, editorialUpdatedAt: data.editorial_updated_at };
@@ -156,9 +159,9 @@ function dependencies(): FacebookImportDependencies {
   };
 }
 
-export async function runFacebookImport(post: FacebookPost, force = false, overrideEditorial = false) {
+export async function runFacebookImport(post: FacebookPost, force = false, overrideEditorial = false, restartTrashed = false) {
   try {
-    const result = await processFacebookImport(post, dependencies(), { force, overrideEditorial });
+    const result = await processFacebookImport(post, dependencies(), { force, overrideEditorial, restartTrashed });
     const prefix = `travel-photos/facebook-live/${result.story.id}/`;
     const { data: stored } = await facebookSupabaseOperation("story_media.select", getSupabaseServiceClient().from("story_media").select("storage_path").eq("story_id", result.story.id).eq("kind", "photo").like("storage_path", `${prefix}%`));
     const requested = new Set(post.media.filter((item) => item.type === "photo").map((item) => `${prefix}${safeMediaId(item.sourceId)}.jpg`));
@@ -208,8 +211,8 @@ async function fetchFacebookPostForImport(postId: string) {
   }
 }
 
-export async function importFacebookPostById(postId: string, force = false, overrideEditorial = false) {
-  return runFacebookImport(await fetchFacebookPostForImport(postId), force, overrideEditorial);
+export async function importFacebookPostById(postId: string, force = false, overrideEditorial = false, restartTrashed = false) {
+  return runFacebookImport(await fetchFacebookPostForImport(postId), force, overrideEditorial, restartTrashed);
 }
 
 export async function enqueueFacebookChange(pageId: string, postId: string, kind: "upsert" | "remove", receivedAt = Date.now()) {

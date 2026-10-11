@@ -29,8 +29,11 @@ export async function POST(request: Request) {
   try {
     if (body?.action === "test" && body.postId) {
       const page = await getFacebookPage();
-      const result = await importFacebookPostById(body.postId);
-      await facebookSupabaseOperation("facebook_sync_settings.update", getSupabaseServiceClient().from("facebook_sync_settings").update({ page_id: page.id, state: "testing", last_error: null, updated_at: new Date().toISOString() }).eq("singleton", true));
+      const result = await importFacebookPostById(body.postId, true, false, true);
+      const supabase = getSupabaseServiceClient();
+      await facebookSupabaseOperation("facebook_sync_settings.update", supabase.from("facebook_sync_settings").update({ page_id: page.id, last_error: null, updated_at: new Date().toISOString() }).eq("singleton", true));
+      // Filter the transition in the database so a concurrent activation cannot be reset.
+      await facebookSupabaseOperation("facebook_sync_settings.update", supabase.from("facebook_sync_settings").update({ state: "testing" }).eq("singleton", true).in("state", ["disconnected", "testing", "interrupted"]));
       return Response.json({ ok: true, page, result });
     }
     if (body?.action === "activate") {

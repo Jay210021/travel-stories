@@ -57,7 +57,7 @@ export type FacebookImportDependencies = {
   now(): Date;
   findImport(pageId: string, postId: string): Promise<FacebookImportRecord | null>;
   createDraft(input: Omit<ImportedStory, "id" | "status" | "editorialUpdatedAt">): Promise<ImportedStory>;
-  updateDraft(input: Partial<Omit<ImportedStory, "id">> & { id: string }): Promise<ImportedStory>;
+  updateDraft(input: Partial<Omit<ImportedStory, "id">> & { id: string; deletedAt?: string | null }): Promise<ImportedStory>;
   saveImport(record: FacebookImportRecord): Promise<FacebookImportRecord>;
   savePendingSnapshot(record: FacebookImportRecord, post: FacebookPost): Promise<void>;
   uploadPhoto(storyId: string, media: FacebookMedia): Promise<{ storagePath: string }>;
@@ -89,13 +89,17 @@ function withoutTrackingParameters(message: string) {
 
 function safeFailureReason(error: unknown) { return facebookImportErrorReason(error).slice(0, 300); }
 
-export async function processFacebookImport(post: FacebookPost, dependencies: FacebookImportDependencies, options: { force?: boolean; overrideEditorial?: boolean } = {}): Promise<FacebookImportResult> {
+export async function processFacebookImport(post: FacebookPost, dependencies: FacebookImportDependencies, options: { force?: boolean; overrideEditorial?: boolean; restartTrashed?: boolean } = {}): Promise<FacebookImportResult> {
   const startedAt = dependencies.now().toISOString();
   const message = withoutTrackingParameters(post.message);
   const existing = await dependencies.findImport(post.pageId, post.postId);
+  const restartTrashed = options.restartTrashed && existing?.story.status === "trash" && !post.removed;
+  if (restartTrashed && existing.story.sourceId !== `facebook-live:${post.pageId}:${post.postId}`) {
+    throw new Error("這篇 Facebook 貼文已連結到其他文章，請先從垃圾桶復原該文章。");
+  }
   const mediaIdentity = (media: FacebookMedia[]) => JSON.stringify(media.map((item) => [item.type, item.sourceId]));
   const sameMedia = existing && mediaIdentity(existing.sourceSnapshot?.media || []) === mediaIdentity(post.media);
-  if (existing && sameMedia && existing.sourceUpdatedAt === post.updatedTime && !post.removed && !options.force && (existing.status === "succeeded" || existing.status === "needs_attention" || existing.status === "update_pending")) {
+  if (existing && sameMedia && existing.sourceUpdatedAt === post.updatedTime && !post.removed && !options.force && !restartTrashed && (existing.status === "succeeded" || existing.status === "needs_attention" || existing.status === "update_pending")) {
     const unchanged = { ...existing, attemptCount: existing.attemptCount + 1 };
     await dependencies.saveImport(unchanged);
     await dependencies.recordAttempt({
@@ -120,7 +124,7 @@ export async function processFacebookImport(post: FacebookPost, dependencies: Fa
     });
     return { status: removed.status, story: existing.story, attentionReason: removed.attentionReason };
   }
-  if (existing && (existing.story.editorialUpdatedAt || existing.story.status === "published") && !options.overrideEditorial) {
+  if (existing && (existing.story.editorialUpdatedAt || existing.story.status === "published") && !options.overrideEditorial && !restartTrashed) {
     const attemptNumber = existing.attemptCount + 1;
     const pending = { ...existing, status: "update_pending" as const, attemptCount: attemptNumber, attentionReason: "Facebook 原文已有更新，等待作者確認" };
     await dependencies.savePendingSnapshot(pending, post);
@@ -139,9 +143,10 @@ export async function processFacebookImport(post: FacebookPost, dependencies: Fa
       body: message,
       publishedAt: post.createdTime,
       titleConfirmed: false,
+      ...(restartTrashed ? { status: "draft" as const, deletedAt: null, editorialUpdatedAt: null } : {}),
     });
     const photoIds = post.media.filter((item) => item.type === "photo").map((item) => item.sourceId);
-    const importedPhotoIds = existing.importedPhotoIds.filter((id) => photoIds.includes(id));
+    const importedPhotoIds = restartTrashed ? [] : existing.importedPhotoIds.filter((id) => photoIds.includes(id));
     const attention: string[] = [];
     let photoFailed = false;
     for (const media of post.media) {

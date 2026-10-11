@@ -82,7 +82,7 @@ export default function DraftManager({ initialDrafts }: { initialDrafts: Draft[]
       setMessage("文章已儲存。");
       return { ok: true };
     } catch (error) {
-      const reason = error instanceof Error ? error.message : "請稍後再試。";
+      const reason = error instanceof Error ? error.message : typeof error === "object" && error !== null && "message" in error && typeof error.message === "string" ? error.message : "請稍後再試。";
       setMessage(`儲存失敗：${reason}`);
       return { ok: false, error: reason };
     } finally { setSaving(false); }
@@ -106,11 +106,11 @@ export default function DraftManager({ initialDrafts }: { initialDrafts: Draft[]
     }
   }
 
-  function requestPublish(ids: string[], saveActiveFirst = false) {
+  function requestPublish(ids: string[]) {
     if (!ids.length) return setMessage("請先選擇文章。");
     const targets = drafts.filter((draft) => ids.includes(draft.draftId) && draft.status !== "trash");
     if (!targets.length) return setMessage("沒有可發布的文章。");
-    setPublishRequest({ ids, saveActiveFirst });
+    setPublishRequest({ ids, saveActiveFirst: Boolean(active && ids.includes(active.draftId)) });
   }
 
   async function confirmPublish() {
@@ -171,7 +171,7 @@ export default function DraftManager({ initialDrafts }: { initialDrafts: Draft[]
             <button onClick={restoreSelected} disabled={!selected.length} className="rounded-full border border-[#557166] px-4 py-2 text-sm text-[#557166] disabled:opacity-40">復原</button>
             <button onClick={moveSelectedToTrash} disabled={!selected.length} className="rounded-full border border-[#9a4d42] px-4 py-2 text-sm text-[#9a4d42] disabled:opacity-40">移至垃圾桶</button>
             <button onClick={unpublishSelected} disabled={!selected.length} className="rounded-full border border-[#c1664b] px-4 py-2 text-sm text-[#c1664b] disabled:opacity-40">取消發布</button>
-            <button onClick={() => requestPublish(selected)} disabled={!selected.length} className="rounded-full bg-[#c1664b] px-4 py-2 text-sm text-white disabled:opacity-40">發布（{selected.length}）</button>
+            <button onClick={() => requestPublish(selected)} disabled={!selected.length || saving || publishing} className="rounded-full bg-[#c1664b] px-4 py-2 text-sm text-white disabled:opacity-40">發布（{selected.length}）</button>
           </div>
         </div>
         <div className="mt-8 grid gap-6 lg:grid-cols-[380px_1fr]">
@@ -189,7 +189,7 @@ export default function DraftManager({ initialDrafts }: { initialDrafts: Draft[]
               <label className="mt-6 block max-w-sm">故事日期<input type="date" value={active.publishedAt?.slice(0, 10) ?? ""} onChange={(event) => edit({ publishedAt: event.target.value ? `${event.target.value}T12:00:00.000Z` : null })} className="mt-2 w-full rounded-xl border px-3 py-3" /></label>
               <StoryTaxonomyManager ref={taxonomyRef} storyId={active.id} />
               <label className="mt-6 block">文章內容<textarea value={active.body} onChange={(event) => edit({ body: event.target.value })} className="mt-2 min-h-72 w-full rounded-2xl border bg-[#fdfcf8] p-5 text-sm leading-7 text-[#718078]" /></label>
-              <div className="mt-6 flex flex-wrap gap-3"><button onClick={saveStory} disabled={saving || publishing} className="rounded-full border border-[#cbd9d1] px-5 py-3 text-sm text-[#557166] disabled:opacity-50">{saving ? "儲存中…" : "儲存"}</button>{active.status !== "published" && active.status !== "trash" && <button onClick={() => requestPublish([active.draftId], true)} disabled={saving || publishing} className="rounded-full bg-[#c1664b] px-5 py-3 text-sm text-white disabled:opacity-50">發布這篇文章</button>}</div>
+              <div className="mt-6 flex flex-wrap gap-3"><button onClick={saveStory} disabled={saving || publishing} className="rounded-full border border-[#cbd9d1] px-5 py-3 text-sm text-[#557166] disabled:opacity-50">{saving ? "儲存中…" : "儲存"}</button>{active.status !== "published" && active.status !== "trash" && <button onClick={() => requestPublish([active.draftId])} disabled={saving || publishing} className="rounded-full bg-[#c1664b] px-5 py-3 text-sm text-white disabled:opacity-50">發布這篇文章</button>}</div>
               {active.id && <ExistingMediaManager key={active.id} storyId={active.id} />}
             </article>
           )}

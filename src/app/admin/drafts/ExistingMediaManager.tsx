@@ -3,19 +3,21 @@
 /* eslint-disable @next/next/no-img-element */
 import { useEffect, useState } from "react";
 import { removeMedia, reorderMedia, updateMedia } from "@/lib/media-library";
+import VideoUploader from "../VideoUploader";
 
 type Media = { id: string; kind: "photo" | "video"; storage_path: string; sort_order: number; caption: string; alt_text: string; url: string };
 
 export default function ExistingMediaManager({ storyId }: { storyId: string }) {
   const [items, setItems] = useState<Media[]>([]);
   const [message, setMessage] = useState("媒體載入中…");
+  const [uploadRevision, setUploadRevision] = useState(0);
 
   useEffect(() => {
     fetch(`/api/media-library?storyId=${encodeURIComponent(storyId)}`).then(async (response) => ({ response, data: await response.json() })).then(({ response, data }) => {
       setItems(response.ok ? data.media as Media[] : []);
       setMessage(response.ok ? "" : data.error || "無法載入媒體");
     }).catch(() => setMessage("無法載入媒體"));
-  }, [storyId]);
+  }, [storyId, uploadRevision]);
 
   function edit(id: string, changes: Partial<Media>) {
     setItems((current) => current.map((item) => item.id === id ? { ...item, ...changes } : item));
@@ -69,6 +71,7 @@ export default function ExistingMediaManager({ storyId }: { storyId: string }) {
         })}
         {!items.length && !message && <p className="text-sm text-[#9aa8a0]">這篇文章目前沒有媒體。</p>}
       </div>
+      <VideoUploader storyId={storyId} onUploaded={() => setUploadRevision((revision) => revision + 1)} />
     </section>
   );
 }

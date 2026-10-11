@@ -5,10 +5,9 @@ import { getStoryBySlug } from "@/lib/public-reading";
 import { storyDestinationCrumbs } from "@/lib/destination";
 import ArticleEditor from "./ArticleEditor";
 import ViewTracker from "./ViewTracker";
+import StoryGallery from "./StoryGallery";
 
 export const dynamic = "force-dynamic";
-
-/* eslint-disable @next/next/no-img-element */
 
 export default async function StoryPage({
   params,
@@ -43,53 +42,17 @@ export default async function StoryPage({
           />
         </header>
 
-        <div className="mx-auto mt-12 grid max-w-4xl grid-cols-1 gap-4 sm:grid-cols-2">
-          {story.media.map((media, index) => {
-            const src = media.url;
-            const isLeadMedia = index === 0;
-
-            if (media.kind === "video") {
-              return (
-                <video
-                  key={media.storage_path}
-                  src={src}
-                  controls
-                  className={`w-full rounded-2xl ${isLeadMedia ? "sm:col-span-2" : ""}`}
-                />
-              );
-            }
-
-            return (
-              <figure
-                key={media.storage_path}
-                className={isLeadMedia ? "sm:col-span-2" : ""}
-              >
-                <div
-                  className={
-                    isLeadMedia
-                      ? "overflow-hidden rounded-2xl"
-                      : "flex aspect-[4/3] items-center justify-center overflow-hidden rounded-2xl bg-[#eef2ee]"
-                  }
-                >
-                  <img
-                    src={src}
-                    alt={media.alt_text}
-                    className={
-                      isLeadMedia ? "h-auto w-full" : "h-full w-full object-contain"
-                    }
-                  />
-                </div>
-                <figcaption className="mt-2 text-sm text-[#718078]">
-                  {media.caption}
-                </figcaption>
-              </figure>
-            );
-          })}
-        </div>
+        <StoryGallery photos={story.media.filter((media) => media.kind === "photo" && media.url)} />
 
         <div className="mx-auto mt-14 max-w-2xl whitespace-pre-wrap text-lg leading-9 text-[#667870]">
           {story.body}
         </div>
+        {story.media.some((media) => media.kind === "video") && <section aria-label="????" className="mx-auto mt-10 max-w-4xl space-y-6">
+          {story.media.filter((media) => media.kind === "video").map((media) => <figure key={media.storage_path}>
+            <video src={media.url} controls preload="metadata" className="mx-auto max-h-[75vh] w-full rounded-2xl bg-[#18231f]" />
+            {media.caption && <figcaption className="mt-2 text-sm text-[#718078]">{media.caption}</figcaption>}
+          </figure>)}
+        </section>}
       </article>
     </main>
   );

@@ -52,7 +52,7 @@ function database(resultFor: (query: Query) => Result) {
       return (...args: unknown[]) => {
         if (["upsert", "insert", "update", "delete"].includes(String(key))) { state.operation = String(key); state.input = args[0]; }
         if (key === "select") state.columns = String(args[0]);
-        if (key === "eq" || key === "like") state.filters[String(args[0])] = args[1];
+        if (key === "eq" || key === "like" || key === "in") state.filters[String(args[0])] = args[1];
         if (key === "single" || key === "maybeSingle") state.single = true;
         return chain;
       };
@@ -153,6 +153,41 @@ test("POST success requires the sync settings update to succeed", async () => {
   const response = await route.POST(request());
   assert.equal(response.status, 500);
   assert.match((await response.json()).error, /facebook_sync_settings.update.*HTTP 403/);
+});
+
+test("manual imports keep active sync and its original activation time; initial tests still allow activation", async () => {
+  for (const initialState of ["active", "disconnected", "testing", "interrupted"]) {
+    const settings = { state: initialState, page_id: pageId, activated_at: "2026-09-01T00:00:00Z" };
+    globals[dbKey] = database((query) => {
+      if (query.table === "facebook_sync_settings") {
+        const allowed = query.filters.state as string[] | undefined;
+        if (query.operation === "update" && (!allowed || allowed.includes(settings.state))) Object.assign(settings, query.input);
+        return ok(settings);
+      }
+      return successfulDatabase(query);
+    });
+    const response = await route.POST(new Request("http://localhost/api/facebook-import", { method: "POST", body: JSON.stringify({ action: "test", postId }) }));
+    assert.equal(response.status, 200);
+    assert.equal(settings.state, initialState === "active" ? "active" : "testing");
+    assert.equal(settings.activated_at, "2026-09-01T00:00:00Z");
+  }
+});
+
+test("a concurrent activation cannot be undone by the final test transition", async () => {
+  const settings = { state: "testing", activated_at: null as string | null };
+  globals[dbKey] = database((query) => {
+    if (query.table === "facebook_sync_settings" && query.operation === "update") {
+      const allowed = query.filters.state as string[] | undefined;
+      if (allowed) Object.assign(settings, { state: "active", activated_at: "2026-10-07T00:00:00Z" });
+      if (!allowed || allowed.includes(settings.state)) Object.assign(settings, query.input);
+      return ok(settings);
+    }
+    return successfulDatabase(query);
+  });
+  const response = await route.POST(new Request("http://localhost/api/facebook-import", { method: "POST", body: JSON.stringify({ action: "test", postId }) }));
+  assert.equal(response.status, 200);
+  assert.equal(settings.state, "active");
+  assert.equal(settings.activated_at, "2026-10-07T00:00:00Z");
 });
 
 test("invalid IDs and malformed versions fail before issuing a Graph request", async (t) => {
@@ -321,6 +356,7 @@ test("four-photo imports write all Storage objects/media rows; a failed middle p
   t.mock.method(globalThis, "fetch", async (url: URL | string) => {
     const location = new URL(url);
     if (location.hostname !== "graph.facebook.com") return new Response("photo bytes", { status: failSecond && location.pathname === "/2.jpg" ? 503 : 200, headers: { "content-type": "image/jpeg" } });
+    if (location.pathname.endsWith(`/${pageId}`)) return Response.json({ id: pageId, name: "Test Page" });
     return Response.json({ ...graphPost, attachments: { data: [{ type: "album", subattachments: { data: ["1", "2", "3", "4"].map((id) => ({ type: "photo", target: { id }, media: { image: { src: `https://scontent.fbcdn.net/${id}.jpg` } } })) } }] } });
   });
   const first = await runner.importFacebookPostById(postId);
@@ -339,4 +375,19 @@ test("four-photo imports write all Storage objects/media rows; a failed middle p
   assert.equal(mediaRows.length, 4);
   const written = infoLogs.filter((args) => args[0] === "Facebook draft images").at(-1)?.[1] as Record<string, unknown>;
   assert.equal(written.writtenImageCount, 4);
+
+  Object.assign(story, { status: "trash", deleted_at: "2026-10-07T00:00:00Z", editorial_updated_at: "2026-10-06T00:00:00Z", title: "舊編輯標題", title_confirmed: true });
+  const response = await route.POST(new Request("http://localhost/api/facebook-import", { method: "POST", body: JSON.stringify({ action: "test", postId }) }));
+  assert.equal(response.status, 200);
+  const result = (await response.json()).result;
+  assert.equal(result.story.id, first.story.id);
+  assert.equal(result.status, "succeeded");
+  assert.equal(story.status, "draft");
+  assert.equal(story.deleted_at, null);
+  assert.equal(story.editorial_updated_at, null);
+  assert.equal(story.title_confirmed, false);
+  assert.equal(story.title, "測試貼文");
+  assert.equal(uploadCount, 8, "restarting trash downloads all four photos again");
+  assert.equal(mediaRows.length, 4);
+  assert.equal(storagePaths.size, 4);
 });
